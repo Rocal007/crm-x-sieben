@@ -17,12 +17,8 @@
  */
 
 
-// --- Core Setup & Helpers ---
-if (!defined('CRM_VERSION')) {
-    define('CRM_VERSION', '2.9.5');
-}
-
-require_once __DIR__ . '/helpers/crm-status.php';
+// --- Core Setup & Bootstrap ---
+require_once __DIR__ . '/crm-bootstrap.php';
 
 /**
  * Get the configuration for all possible CRM actions.

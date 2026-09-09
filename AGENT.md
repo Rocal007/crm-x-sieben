@@ -10,7 +10,7 @@ Dieses Dokument definiert die Architektur, Konventionen und Arbeitsregeln für d
 
 ## 2. Autarkie-Architektur
 Das Modul `inc/core/crm/` ist 100 % unabhängig vom Rest des Themes:
-- **`crm-admin.php`**: Hauptseite, Menüeintrag, Asset-Fallback-Registration, Versionsanzeige (`CRM_VERSION = '2.9.5'`).
+- **`crm-admin.php`**: Hauptseite, Menüeintrag, Asset-Fallback-Registration, Versionsanzeige (`CRM_VERSION = '2.9.6'`).
 - **`crm-model.php`**: Zentrales Datenmodell `CRM_Model`. Liest WPForms-Felder und Kursdaten aus. E-Mail-Vorlagen werden via `wpautop()` + `do_shortcode()` + `crm_prepare_email_html_for_sending()` geladen.
 - **`helpers/normalize.php`**: E-Mail-HTML-Normalisierer `crm_prepare_email_html_for_sending()`. Garantiert absolute HTTPS-URLs (`https://x-sieben.at/...`), bereinigt Cookie-Banner-Attribute und repariert Smileys.
 - **`helpers/crm-status.php`**: Datenbanktabellen `wp_crm_entry_status` und `wp_crm_entry_status_history`, Status-Badges, Zeitstempel, Modal-Historie.

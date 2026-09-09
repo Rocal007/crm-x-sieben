@@ -1,9 +1,12 @@
 <?php
 
+require_once __DIR__ . '/crm-bootstrap.php';
 require_once __DIR__ . '/helpers/normalize.php';
 
 class CRM_Model
 {
+    public ?ParticipantDTO $participantDTO = null;
+    public ?CourseDTO $courseDTO = null;
     public $post_id, $title, $titel_short, $permalink, $start_datum, $end_datum, $preis_netto, $preis_brutto, $title_preis, $kurstyp, $abschluss;
     public $angebot_beschreibung, $anzahl_le, $le_single, $kursart, $kursart_t = '', $kursart_a = '', $kursart_we = '';
     public $voraussetzungen = [], $kurszeiten = [], $module_html = [], $selbststudium = [], $termine_pdf, $zertifizierungen = [], $zertifizierungen_images = [];
@@ -60,37 +63,45 @@ class CRM_Model
     {
         $this->post_id = $post_id;
 
-        // WP-Forms Entry
-        $this->entry_data = $this->get_wpforms_entry_data($entry_id);
+        // 1. Participant-Daten über WPFormsRepository (DTO)
+        $participantRepo = new WPFormsRepository();
+        $this->participantDTO = $participantRepo->findParticipant($entry_id ?? 0);
+        $this->entry_data = $participantRepo->getRawEntryData($entry_id ?? 0);
 
-        // NEU: Adress- und Namensdaten aus WPForms-Daten aufteilen
-        $this->set_address_components();
-        $this->set_personal_data();
+        $this->salutation   = $this->participantDTO->salutation;
+        $this->anrede       = $this->participantDTO->anrede;
+        $this->titel        = $this->participantDTO->title;
+        $this->vorname      = $this->participantDTO->firstName;
+        $this->nachname     = $this->participantDTO->lastName;
+        $this->email        = $this->participantDTO->email;
+        $this->svr          = $this->participantDTO->svr;
+        $this->street       = $this->participantDTO->street;
+        $this->house_number = $this->participantDTO->houseNumber;
+        $this->city         = $this->participantDTO->city;
+        $this->zip_code     = $this->participantDTO->zipCode;
+        $this->country      = $this->participantDTO->country;
 
+        // 2. Kurs-Daten über CourseRepository (DTO)
+        $courseRepo = new CourseRepository();
+        $this->courseDTO = $courseRepo->findById($post_id, $entry_id);
 
-        // Basic Fields
-        $this->title = esc_html(get_the_title($post_id));
-        $this->titel_short = get_field('title_im_slider', $post_id);
-        $this->permalink = get_permalink($post_id);
-        // Persistent snapshot dates: Use frozen inquiry dates if available, otherwise fallback to course post meta
-        $snapshot_dates = ($entry_id && function_exists('crm_get_entry_course_dates')) ? crm_get_entry_course_dates($entry_id) : null;
-        if (!empty($snapshot_dates['start_date'])) {
-            $this->start_datum = date('d.m.Y', strtotime($snapshot_dates['start_date']));
-        } else {
-            $this->start_datum = $this->format_date_meta('start_datum');
-        }
-
-        if (!empty($snapshot_dates['end_date'])) {
-            $this->end_datum = date('d.m.Y', strtotime($snapshot_dates['end_date']));
-        } else {
-            $this->end_datum = $this->format_date_meta('end_datum');
-        }
-        $this->preis_netto = number_format((float)get_post_meta($post_id, 'kosten', true), 2, ',', '');
-        $this->preis_brutto = !empty($tempKosten = get_post_meta($post_id, "kosten", true))
-            ? number_format((float)$tempKosten * 1.20, 2, '.', '')
-            : 0;
-        $this->title_preis = $this->title;
-        $this->angebot_beschreibung = get_post_meta($post_id, 'angebot_beschreibung', true);
+        $this->title                = $this->courseDTO->title;
+        $this->titel_short          = $this->courseDTO->shortTitle;
+        $this->permalink            = $this->courseDTO->permalink;
+        $this->start_datum          = $this->courseDTO->startDate;
+        $this->end_datum            = $this->courseDTO->endDate;
+        $this->preis_netto          = $this->courseDTO->getFormattedNetPrice();
+        $this->preis_brutto         = !empty($this->courseDTO->netPrice) ? number_format($this->courseDTO->grossPrice, 2, '.', '') : 0;
+        $this->title_preis          = $this->courseDTO->title;
+        $this->angebot_beschreibung = $this->courseDTO->description;
+        $this->anzahl_le            = $this->courseDTO->totalLE;
+        $this->le_single            = number_format($this->courseDTO->pricePerLE, 2);
+        $this->kurstyp              = $this->courseDTO->courseType;
+        $this->zielgruppe           = $this->courseDTO->targetGroup;
+        $this->kurszeiten           = $this->courseDTO->courseTimes;
+        $this->selbststudium        = $this->courseDTO->selfStudy;
+        $this->zertifizierungen     = $this->courseDTO->certifications;
+        $this->voraussetzungen      = $this->courseDTO->prerequisites;
 
         // Direktaufrufe statt Cache
         $this->zertifizierungen_images = $this->get_zertifizierungen_images();
@@ -1343,5 +1354,21 @@ class CRM_Model
             </tr>
         </table>
     ';
+    }
+
+    /**
+     * Get typed ParticipantDTO.
+     */
+    public function getParticipant(): ?ParticipantDTO
+    {
+        return $this->participantDTO;
+    }
+
+    /**
+     * Get typed CourseDTO.
+     */
+    public function getCourse(): ?CourseDTO
+    {
+        return $this->courseDTO;
     }
 }
