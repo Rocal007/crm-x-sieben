@@ -1,6 +1,6 @@
 # X-SIEBEN CRM & Kurs-Management-Modul
 
-[![Version](https://img.shields.io/badge/version-2.9.6-blue.svg)](crm-admin.php)
+[![Version](https://img.shields.io/badge/version-2.11.7-blue.svg)](crm-admin.php)
 [![PHP](https://img.shields.io/badge/PHP-%3E%3D%208.0-777bb4.svg)](https://www.php.net/)
 [![WordPress](https://img.shields.io/badge/WordPress-Theme%20Module-21759b.svg)](https://wordpress.org/)
 [![Compliance](https://img.shields.io/badge/Standard-LINGUA--LOCA%20AT-success.svg)](AGENT.md)
@@ -12,7 +12,11 @@ Autarkes CRM-, Kursverarbeitungs- und Dokumentengenerierungs-Modul für die **X 
 ## 📌 Kernfunktionen
 
 - **WPForms-Integration:** Nahtlose Anbindung an Formular-Einträge (Default-Formular-ID `60468`) mit CPT `courses`.
-- **Dokumenten-Engine (PDF):** Dynamische Erstellung von rechtskonformen PDF-Dokumenten via mPDF:
+- **E-Mail & PDF Editor getrennt (`crm-settings.php`):**
+  - Eigener E-Mail-Editor (`admin.php?page=crm-emails`) für alle Transaktions-Vorlagen und Signaturen.
+  - Eigener PDF-Editor (`admin.php?page=crm-pdf`) für alle Bausteine, Klauseln, Bankdaten und Textpassagen.
+  - **Integrierte Live-PDF-Vorschau:** Automatische TCPDF-Vorschau aller 5 Dokumenttypen (KB, TB, Diplom, Angebot & Honorarnote) direkt unter dem Editor, synchronisiert mit Filter-Pills und automatischem Re-Rendering beim Speichern von Bausteinen.
+- **Dokumenten-Engine (PDF):** Dynamische Erstellung von rechtskonformen PDF-Dokumenten via TCPDF:
   - Angebote (mit Modulen, Trainern, Preisen und AGB-Klauseln)
   - Kurszeitenbestätigungen (KB)
   - Kombi-Dokumente (Angebot & KB)
@@ -36,10 +40,10 @@ Autarkes CRM-, Kursverarbeitungs- und Dokumentengenerierungs-Modul für die **X 
 ```
 inc/core/crm/
 │
-├── crm-admin.php              # Menü-Registrierung, Tabellen-Render, Version 2.9.5
+├── crm-admin.php              # Menü-Registrierung, Tabellen-Render, Version 2.11.7
 ├── crm-model.php              # Zentrales Datenmodell CRM_Model (WPForms ↔ CPT courses)
 ├── crm-form.php               # Formular-Feldextraktion und Normalisierung
-├── crm-settings.php           # CRM-Optionen, Absender- und Test-Empfänger-Konfiguration
+├── crm-settings.php           # E-Mail Editor, PDF Editor, Live-PDF-Vorschau & Optionen
 ├── crm-view-entry.php         # Detailansicht einzelner Einreichungen
 ├── crm-view-detail.php        # Tabellen-Subview
 │

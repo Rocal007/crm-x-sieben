@@ -17,8 +17,13 @@
  */
 
 
-// --- Core Setup & Bootstrap ---
-require_once __DIR__ . '/crm-bootstrap.php';
+// --- Core Setup & Helpers ---
+if (!defined('CRM_VERSION')) {
+    define('CRM_VERSION', '2.11.7');
+}
+
+require_once __DIR__ . '/helpers/crm-status.php';
+require_once __DIR__ . '/crm-settings.php';
 
 /**
  * Get the configuration for all possible CRM actions.
@@ -54,15 +59,42 @@ add_action('admin_menu', function () {
             'dashicons-groups',
             25
         );
-    }
-});
 
-add_action('admin_menu', function () {
-    if (current_user_can('manage_options')) {
+        // Submenu: Übersicht / Einträge
         add_submenu_page(
-            'crm', // parent slug (from your main menu)
-            __('CRM Settings', 'custom-crm'), // Page title
-            __('Settings', 'custom-crm'),     // Menu title
+            'crm',
+            __('CRM Einträge', 'custom-crm'),
+            __('Einträge', 'custom-crm'),
+            'manage_options',
+            'crm',
+            'render_crm_admin_page'
+        );
+
+        // Submenu: E-Mail Editor
+        add_submenu_page(
+            'crm',
+            __('E-Mail Editor', 'custom-crm'),
+            __('E-Mail Editor', 'custom-crm'),
+            'manage_options',
+            'crm-emails',
+            'render_crm_settings_page'
+        );
+
+        // Submenu: PDF Editor
+        add_submenu_page(
+            'crm',
+            __('PDF Editor', 'custom-crm'),
+            __('PDF Editor', 'custom-crm'),
+            'manage_options',
+            'crm-pdf',
+            'render_crm_settings_page'
+        );
+
+        // Submenu: Einstellungen
+        add_submenu_page(
+            'crm',
+            __('CRM Einstellungen', 'custom-crm'),
+            __('Einstellungen', 'custom-crm'),
             'manage_options',
             'crm-settings',
             'render_crm_settings_page'
@@ -74,7 +106,9 @@ add_action('admin_menu', function () {
  * Fallback enqueue: ensures CRM CSS and JS are always loaded even if deploying ONLY the crm folder.
  */
 add_action('admin_enqueue_scripts', function ($hook) {
-    if (isset($_GET['page']) && $_GET['page'] === 'crm') {
+    $crm_pages = ['crm', 'crm-settings', 'crm-emails', 'crm-pdf'];
+    if (isset($_GET['page']) && in_array($_GET['page'], $crm_pages, true)) {
+        wp_enqueue_media();
         if (!wp_script_is('custom-crm-admin', 'enqueued')) {
             wp_enqueue_script(
                 'custom-crm-admin',

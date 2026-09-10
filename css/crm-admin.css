@@ -1019,6 +1019,290 @@
     font-weight: 500;
 }
 
+/* ==========================================================================
+   CRM Settings, E-Mail Editor & PDF Editor Styles
+   ========================================================================== */
+.crm-settings-wrap {
+    max-width: 1100px;
+}
 
+.crm-main-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
 
+.crm-tab-nav {
+    border-bottom: 1px solid #cbd5e1 !important;
+}
+
+.crm-tab-nav .nav-tab {
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+    padding: 7px 16px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    border-top-left-radius: 6px !important;
+    border-top-right-radius: 6px !important;
+    border-color: #cbd5e1 #cbd5e1 #cbd5e1 #cbd5e1 !important;
+    background: #f1f5f9 !important;
+    color: #475569 !important;
+    transition: all 0.15s ease !important;
+}
+
+.crm-tab-nav .nav-tab:hover {
+    background: #e2e8f0 !important;
+    color: #0f172a !important;
+}
+
+.crm-tab-nav .nav-tab-active {
+    background: #fff !important;
+    color: #007C90 !important;
+    border-bottom-color: #fff !important;
+    box-shadow: 0 -2px 0 #007C90 inset !important;
+}
+
+.crm-tab-count {
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 10px;
+    margin-left: 2px;
+}
+
+.nav-tab-active .crm-tab-count {
+    background: #0284c7;
+    color: #fff;
+}
+
+.crm-field-block {
+    margin-bottom: 12px;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+    transition: border-color 0.15s ease;
+}
+
+.crm-field-block:hover {
+    border-color: #94a3b8;
+}
+
+.crm-field-header {
+    cursor: pointer;
+    background: #f8fafc;
+    padding: 10px 14px;
+    border-bottom: 1px solid transparent;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    user-select: none;
+}
+
+.crm-field-header:hover {
+    background: #f1f5f9;
+}
+
+.crm-field-header h3 {
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.crm-usage-badge {
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: -0.01em;
+}
+
+.crm-field-content {
+    padding: 16px;
+    background: #ffffff;
+    border-top: 1px solid #e2e8f0;
+}
+
+.crm-action-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.crm-chip {
+    display: inline-flex;
+    align-items: center;
+    background: #f1f5f9;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: monospace;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.15s ease;
+}
+
+.crm-chip:hover {
+    background: #e0f2fe;
+    border-color: #0284c7;
+    color: #0369a1;
+}
+
+/* ==========================================================================
+   CRM General Settings & Demographics / CI Styles
+   ========================================================================== */
+.crm-settings-card {
+    max-width: 950px;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 22px 26px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.crm-settings-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 12px;
+    margin-bottom: 18px;
+}
+
+.crm-settings-card-header h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.crm-section-tag {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: #e2e8f0;
+    color: #475569;
+}
+
+.crm-form-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.crm-form-col {
+    flex: 1;
+    min-width: 240px;
+}
+
+.crm-form-col-full {
+    flex: 100%;
+}
+
+.crm-form-label {
+    display: block;
+    font-weight: 600;
+    font-size: 13px;
+    color: #1e293b;
+    margin-bottom: 5px;
+}
+
+.crm-form-help {
+    font-size: 12px;
+    color: #64748b;
+    margin-top: 4px;
+    line-height: 1.4;
+}
+
+.crm-logo-upload-box {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin-top: 6px;
+}
+
+.crm-logo-preview-wrap {
+    width: 150px;
+    height: 75px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 4px;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.03);
+}
+
+.crm-logo-preview-wrap img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.crm-logo-controls {
+    flex: 1;
+}
+
+.crm-color-group {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.crm-color-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 8px 14px;
+    border-radius: 6px;
+    flex: 1;
+    min-width: 180px;
+}
+
+.crm-color-picker {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    cursor: pointer;
+    background: none;
+}
+
+.crm-color-hex-input {
+    width: 95px !important;
+    font-family: monospace;
+    font-size: 13px !important;
+    text-transform: uppercase;
+}
 

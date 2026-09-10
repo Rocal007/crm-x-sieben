@@ -1,5 +1,5 @@
 <?php
-function xsieben_invoice_pdf($entry_id, $course_id)
+function xsieben_invoice_pdf($entry_id, $course_id, $output_to_browser = true)
 {
     // CRM_Model-Instanz laden (hier Reihenfolge der Parameter prüfen!)
     $course = new CRM_Model($course_id, $entry_id);
@@ -10,10 +10,15 @@ function xsieben_invoice_pdf($entry_id, $course_id)
     $safe_title = preg_replace('/[^a-zA-Z0-9_\-äöüÄÖÜß]/u', '-', $course->titel_short);
     $pdf_name = "HN_" . $course_id . "_" . $safe_title . "_" . $course->vorname . "_" . $course->nachname . ".pdf";
 
+    // Dynamische Texte aus dem CRM Model (PDF Editor) mit Default-Fallback
+    $hn_title      = $course->get_crm_field_with_default('Honorarnote - Titel', 'Honorarnote');
+    $hn_einleitung = $course->get_crm_field_with_default('Honorarnote - Einleitung', '<p>Hiermit stellen wir Ihnen folgende Leistungen in Rechnung:</p>');
+    $hn_zahlung    = $course->get_crm_field_with_default('Honorarnote - Zahlungsanweisung', 'Bitte überweisen Sie den Betrag bis zum [Datum] auf das Konto von X SIEBEN Wirtschaftstraining GmbH.<br>IBAN: AT29 3293 7001 0012 5260 | BIC: RLNWATWWWRN');
+
     // HTML-Inhalt für das PDF (beispielhaft, anpassen wie du willst)
     $html = '
     <div style="font-size: 12pt; font-weight: bold; text-align: center;">
-        Honorarnote
+        ' . $hn_title . '
     </div>
     <div style="margin-top: 20px; font-size: 10pt;">
         <strong>Rechnungsnummer:</strong> HN_' . $course_id . '<br>
@@ -24,7 +29,7 @@ function xsieben_invoice_pdf($entry_id, $course_id)
     </div>
     <hr style="margin-top:20px; margin-bottom:20px;">
     <div style="font-size: 10pt;">
-        <p>Hiermit stellen wir Ihnen folgende Leistungen in Rechnung:</p>
+        ' . $hn_einleitung . '
         <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; width: 100%;">
             <thead>
                 <tr>
@@ -46,8 +51,7 @@ function xsieben_invoice_pdf($entry_id, $course_id)
         <p><strong>Gesamtbetrag:</strong> XX,XX €</p>
     </div>
     <div style="margin-top: 30px; font-size: 9pt;">
-        Bitte überweisen Sie den Betrag bis zum [Datum] auf das Konto von X SIEBEN Wirtschaftstraining GmbH.<br>
-        IBAN: AT29 3293 7001 0012 5260 | BIC: RLNWATWWWRN
+        ' . $hn_zahlung . '
     </div>';
 
     // TCPDF-Objekt erstellen
@@ -78,5 +82,9 @@ function xsieben_invoice_pdf($entry_id, $course_id)
     // URL zum PDF für Webzugriff (Pfad ggf. anpassen)
     $pdf_url = get_template_directory_uri() . '/angebote/' . $pdf_name;
 
-    x_sieben_pdf_preview($pdf_url, $course_id, $entry_id, 'invoice');
+    if ($output_to_browser) {
+        x_sieben_pdf_preview($pdf_url, $course_id, $entry_id, 'invoice');
+    } else {
+        return $pdf_url;
+    }
 }

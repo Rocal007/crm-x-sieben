@@ -1,12 +1,9 @@
 <?php
 
-require_once __DIR__ . '/crm-bootstrap.php';
 require_once __DIR__ . '/helpers/normalize.php';
 
 class CRM_Model
 {
-    public ?ParticipantDTO $participantDTO = null;
-    public ?CourseDTO $courseDTO = null;
     public $post_id, $title, $titel_short, $permalink, $start_datum, $end_datum, $preis_netto, $preis_brutto, $title_preis, $kurstyp, $abschluss;
     public $angebot_beschreibung, $anzahl_le, $le_single, $kursart, $kursart_t = '', $kursart_a = '', $kursart_we = '';
     public $voraussetzungen = [], $kurszeiten = [], $module_html = [], $selbststudium = [], $termine_pdf, $zertifizierungen = [], $zertifizierungen_images = [];
@@ -54,6 +51,45 @@ class CRM_Model
     public $anmeldung_email;
     public $diplom_email;
 
+    // Demographie, Firmendaten & CI-Stammdaten
+    public $company_name;
+    public $company_short_name;
+    public $company_legal_form;
+    public $company_management;
+    public $company_street;
+    public $company_zip;
+    public $company_city;
+    public $company_country;
+    public $company_address;
+    public $location_wien;
+    public $location_wien_name;
+    public $location_wien_street;
+    public $location_wien_zip;
+    public $location_wien_city;
+    public $location_wien_notice;
+    public $company_phone;
+    public $company_email;
+    public $company_website;
+    public $backoffice_name;
+    public $backoffice_email;
+    public $backoffice_phone;
+    public $company_uid;
+    public $company_fn;
+    public $company_court;
+    public $company_chamber;
+    public $company_bank;
+    public $company_slogan;
+    public $company_accreditations;
+    public $agb_url;
+    public $privacy_url;
+    public $imprint_url;
+    public $ci_primary_color;
+    public $ci_secondary_color;
+    public $ci_accent_color;
+    public $company_logo;
+    public $company_logo_url;
+    public $company_logo_secondary_url;
+
     /**
      * Konstruktor der Klasse.
      * @param int $post_id Die ID des Beitrags.
@@ -63,45 +99,37 @@ class CRM_Model
     {
         $this->post_id = $post_id;
 
-        // 1. Participant-Daten über WPFormsRepository (DTO)
-        $participantRepo = new WPFormsRepository();
-        $this->participantDTO = $participantRepo->findParticipant($entry_id ?? 0);
-        $this->entry_data = $participantRepo->getRawEntryData($entry_id ?? 0);
+        // WP-Forms Entry
+        $this->entry_data = $this->get_wpforms_entry_data($entry_id);
 
-        $this->salutation   = $this->participantDTO->salutation;
-        $this->anrede       = $this->participantDTO->anrede;
-        $this->titel        = $this->participantDTO->title;
-        $this->vorname      = $this->participantDTO->firstName;
-        $this->nachname     = $this->participantDTO->lastName;
-        $this->email        = $this->participantDTO->email;
-        $this->svr          = $this->participantDTO->svr;
-        $this->street       = $this->participantDTO->street;
-        $this->house_number = $this->participantDTO->houseNumber;
-        $this->city         = $this->participantDTO->city;
-        $this->zip_code     = $this->participantDTO->zipCode;
-        $this->country      = $this->participantDTO->country;
+        // NEU: Adress- und Namensdaten aus WPForms-Daten aufteilen
+        $this->set_address_components();
+        $this->set_personal_data();
 
-        // 2. Kurs-Daten über CourseRepository (DTO)
-        $courseRepo = new CourseRepository();
-        $this->courseDTO = $courseRepo->findById($post_id, $entry_id);
 
-        $this->title                = $this->courseDTO->title;
-        $this->titel_short          = $this->courseDTO->shortTitle;
-        $this->permalink            = $this->courseDTO->permalink;
-        $this->start_datum          = $this->courseDTO->startDate;
-        $this->end_datum            = $this->courseDTO->endDate;
-        $this->preis_netto          = $this->courseDTO->getFormattedNetPrice();
-        $this->preis_brutto         = !empty($this->courseDTO->netPrice) ? number_format($this->courseDTO->grossPrice, 2, '.', '') : 0;
-        $this->title_preis          = $this->courseDTO->title;
-        $this->angebot_beschreibung = $this->courseDTO->description;
-        $this->anzahl_le            = $this->courseDTO->totalLE;
-        $this->le_single            = number_format($this->courseDTO->pricePerLE, 2);
-        $this->kurstyp              = $this->courseDTO->courseType;
-        $this->zielgruppe           = $this->courseDTO->targetGroup;
-        $this->kurszeiten           = $this->courseDTO->courseTimes;
-        $this->selbststudium        = $this->courseDTO->selfStudy;
-        $this->zertifizierungen     = $this->courseDTO->certifications;
-        $this->voraussetzungen      = $this->courseDTO->prerequisites;
+        // Basic Fields
+        $this->title = esc_html(get_the_title($post_id));
+        $this->titel_short = get_field('title_im_slider', $post_id);
+        $this->permalink = get_permalink($post_id);
+        // Persistent snapshot dates: Use frozen inquiry dates if available, otherwise fallback to course post meta
+        $snapshot_dates = ($entry_id && function_exists('crm_get_entry_course_dates')) ? crm_get_entry_course_dates($entry_id) : null;
+        if (!empty($snapshot_dates['start_date'])) {
+            $this->start_datum = date('d.m.Y', strtotime($snapshot_dates['start_date']));
+        } else {
+            $this->start_datum = $this->format_date_meta('start_datum');
+        }
+
+        if (!empty($snapshot_dates['end_date'])) {
+            $this->end_datum = date('d.m.Y', strtotime($snapshot_dates['end_date']));
+        } else {
+            $this->end_datum = $this->format_date_meta('end_datum');
+        }
+        $this->preis_netto = number_format((float)get_post_meta($post_id, 'kosten', true), 2, ',', '');
+        $this->preis_brutto = !empty($tempKosten = get_post_meta($post_id, "kosten", true))
+            ? number_format((float)$tempKosten * 1.20, 2, '.', '')
+            : 0;
+        $this->title_preis = $this->title;
+        $this->angebot_beschreibung = get_post_meta($post_id, 'angebot_beschreibung', true);
 
         // Direktaufrufe statt Cache
         $this->zertifizierungen_images = $this->get_zertifizierungen_images();
@@ -159,6 +187,7 @@ class CRM_Model
         $this->bankverbindung = $this->get_crm_field('Bankverbindung');
         $this->agb_claim = $this->get_crm_field('AGB text');
 
+        $this->load_company_settings();
         $this->load_icons();
         $this->signatur = $this->get_signature_html();
         $this->beratung_email = $this->get_crm_field('Beratung E-Mail Text');
@@ -237,17 +266,71 @@ class CRM_Model
     public function parse_string_with_data(string $template_string): string
     {
         // Use preg_replace_callback to find all {variable} placeholders.
-        // The pattern now looks for an opening curly brace, then captures one or more alphanumeric characters and underscores, followed by a closing curly brace.
         return preg_replace_callback('/\{([a-zA-Z0-9_]+)\}/', function ($matches) {
             $key = $matches[1];
+            if ($key === 'current_date') {
+                return date('d.m.Y');
+            }
+            if ($key === 'diplom_success') {
+                $succ = $this->get_diplom_success();
+                return !empty($succ) ? 'mit ' . esc_html($succ) . ' ' : '';
+            }
             // Check if the property exists in the current object
             if (property_exists($this, $key)) {
                 // Return the property value. Use a ternary operator to handle non-string types gracefully.
-                return is_scalar($this->$key) ? $this->$key : '';
+                return is_scalar($this->$key) ? (string)$this->$key : '';
             }
+
+            // German & convenient aliases for company/CI data
+            $aliases = [
+                'schulungsinstitut'  => 'company_name',
+                'institut_name'      => 'company_name',
+                'institut_kurz'      => 'company_short_name',
+                'institut_adresse'   => 'company_address',
+                'institut_telefon'   => 'company_phone',
+                'institut_email'     => 'company_email',
+                'institut_website'   => 'company_website',
+                'institut_uid'       => 'company_uid',
+                'institut_fn'        => 'company_fn',
+                'institut_gericht'   => 'company_court',
+                'institut_bank'      => 'company_bank',
+                'institut_logo'      => 'company_logo',
+                'schulungsort_wien'  => 'location_wien',
+                'standort_wien'      => 'location_wien',
+                'geschaeftsfuehrung' => 'company_management',
+            ];
+            if (isset($aliases[$key])) {
+                $prop = $aliases[$key];
+                if (property_exists($this, $prop)) {
+                    return is_scalar($this->$prop) ? (string)$this->$prop : '';
+                }
+            }
+
             // If the property doesn't exist, return the original placeholder to avoid breaking the template.
             return $matches[0];
         }, $template_string);
+    }
+
+    /**
+     * Get the value of a CRM custom field by title with a fallback default.
+     *
+     * @param string $title   The field title to search for
+     * @param string $default Fallback string if field is missing or empty
+     * @return string
+     */
+    public function get_crm_field_with_default(string $title, string $default = ''): string
+    {
+        $content = $this->get_crm_field($title);
+        if (!empty(trim(strip_tags($content)))) {
+            return $content;
+        }
+
+        // Parse default string with data placeholders as well
+        $default = $this->parse_string_with_data($default);
+        if (function_exists('crm_prepare_email_html_for_sending')) {
+            $default = crm_prepare_email_html_for_sending($default);
+        }
+        return $default;
     }
 
 
@@ -377,6 +460,50 @@ class CRM_Model
     }
 
     /**
+     * Lädt die demographischen Stammdaten und CI-Einstellungen aus dem CRM.
+     */
+    private function load_company_settings(): void
+    {
+        $settings = function_exists('crm_get_general_settings') ? crm_get_general_settings() : [];
+        $this->company_name        = $settings['company_name'] ?? 'X SIEBEN Wirtschaftstraining GmbH';
+        $this->company_short_name  = $settings['company_short_name'] ?? 'X SIEBEN';
+        $this->company_legal_form  = $settings['company_legal_form'] ?? 'GmbH';
+        $this->company_management  = $settings['company_management'] ?? 'Mag. Dr. Johannes Gasberger';
+        $this->company_street      = $settings['company_street'] ?? 'Kurzegasse 7';
+        $this->company_zip         = $settings['company_zip'] ?? '2493';
+        $this->company_city        = $settings['company_city'] ?? 'Lichtenwörth';
+        $this->company_country     = $settings['company_country'] ?? 'Österreich';
+        $this->company_address     = trim($this->company_street . ', ' . $this->company_zip . ' ' . $this->company_city);
+        $this->location_wien_name  = $settings['location_wien_name'] ?? 'Seminarzentrum Wien';
+        $this->location_wien_street= $settings['location_wien_street'] ?? 'Rochusgasse 6';
+        $this->location_wien_zip   = $settings['location_wien_zip'] ?? '1030';
+        $this->location_wien_city  = $settings['location_wien_city'] ?? 'Wien';
+        $this->location_wien       = trim($this->location_wien_street . ', ' . $this->location_wien_zip . ' ' . $this->location_wien_city);
+        $this->location_wien_notice= $settings['location_wien_notice'] ?? 'Online Unterricht | vor Ort in unseren Veranstaltungsräumen | Blended Learning';
+        $this->company_phone       = $settings['company_phone'] ?? '0800 700 170';
+        $this->company_email       = $settings['company_email'] ?? 'office@x-sieben.at';
+        $this->company_website     = $settings['company_website'] ?? 'https://x-sieben.at';
+        $this->backoffice_name     = $settings['backoffice_name'] ?? 'Anna Brauer';
+        $this->backoffice_email    = $settings['backoffice_email'] ?? 'abrauer@x-sieben.at';
+        $this->backoffice_phone    = $settings['backoffice_phone'] ?? '0800 700 170';
+        $this->company_uid         = $settings['company_uid'] ?? 'ATU76624137';
+        $this->company_fn          = $settings['company_fn'] ?? 'FN 550277 g';
+        $this->company_court       = $settings['company_court'] ?? 'Landesgericht Wiener Neustadt';
+        $this->company_chamber     = $settings['company_chamber'] ?? 'Wirtschaftskammer Niederösterreich / Wien';
+        $this->company_bank        = $settings['company_bank'] ?? 'Erste Bank | IBAN: AT29 3293 7001 0012 5260 | BIC: RLNWATWWWRN';
+        $this->company_slogan      = $settings['company_claim'] ?? 'Wirtschaftstraining, Seminare & Personenzertifizierungen';
+        $this->company_accreditations = $settings['company_accreditations'] ?? 'pma / IPMA®, SystemCERT (ISO 17024), TÜV Austria, wba, CERT NÖ, AMS';
+        $this->agb_url             = $settings['legal_agb_url'] ?? 'https://x-sieben.at/wp-content/uploads/2025/09/AGB_X_SIEBEN_2025.pdf';
+        $this->privacy_url         = $settings['legal_privacy_url'] ?? 'https://x-sieben.at/datenschutzerklaerung/';
+        $this->imprint_url         = $settings['legal_imprint_url'] ?? 'https://x-sieben.at/impressum/';
+        $this->ci_primary_color    = $settings['ci_primary_color'] ?? '#007C90';
+        $this->ci_secondary_color  = $settings['ci_secondary_color'] ?? '#0284c7';
+        $this->ci_accent_color     = $settings['ci_accent_color'] ?? '#0f172a';
+        $this->company_logo_url    = $settings['logo_url'] ?? '';
+        $this->company_logo_secondary_url = $settings['logo_secondary_url'] ?? '';
+    }
+
+    /**
      * Lädt und formatiert HTML-Tags für verschiedene Icons und Logos aus dem Theme-Assets-Verzeichnis.
      */
     private function load_icons()
@@ -417,6 +544,15 @@ class CRM_Model
                 $config['file']
             );
         }
+
+        // Falls ein benutzerdefiniertes Logo in den CRM-Einstellungen hinterlegt ist, dieses für das Hauptlogo verwenden
+        if (!empty($this->company_logo_url)) {
+            $this->xsieben_logo = sprintf(
+                '<img width="200px" style="max-width:200px; height:auto;" src="%s">',
+                esc_url($this->company_logo_url)
+            );
+        }
+        $this->company_logo = $this->xsieben_logo;
     }
 
     /**
@@ -493,60 +629,94 @@ class CRM_Model
             return '';
         }
 
-        $html = '<table cellpadding="4" cellspacing="0" style="width: 100%; border-collapse: collapse; font-size: 10pt;">';
-        $html .= '<thead>
-            <tr style="background-color: #f1f5f9; border-bottom: 1.5px solid #007C90;">
-                <th style="width: 20%; text-align: left; color: #007C90; font-weight: bold;">Gliederung</th>
-                <th style="width: 70%; text-align: left; color: #007C90; font-weight: bold;">Beschreibung</th>
-                <th style="width: 10%; text-align: right; color: #007C90; font-weight: bold;">LE</th>
-            </tr>
-        </thead><tbody>';
+        $html = '';
 
         // 1. Modul- und Themeninhalte
-        foreach ($module_rows as $row) {
-            $html .= '<tr>
-                <td valign="top" style="width: 20%; font-weight: bold; color: #1e293b; padding-top: 4px; padding-bottom: 4px;">' . esc_html($row['modul']) . '</td>
-                <td valign="top" style="width: 70%; color: #334155; padding-top: 4px; padding-bottom: 4px;">' . esc_html($row['titel']) . '</td>
-                <td valign="top" style="width: 10%; text-align: right; color: #64748b; padding-top: 4px; padding-bottom: 4px;">' . (!empty($row['le']) ? esc_html($row['le']) : '') . '</td>
-            </tr>';
+        if (!empty($module_rows)) {
+            $html .= '<table cellpadding="4" cellspacing="0" style="width: 100%; border-collapse: collapse; font-size: 10pt;">';
+            $html .= '<thead>
+                <tr style="background-color: #f1f5f9; border-bottom: 1.5px solid #007C90;">
+                    <th style="width: 20%; text-align: left; color: #007C90; font-weight: bold;">Gliederung</th>
+                    <th style="width: 70%; text-align: left; color: #007C90; font-weight: bold;">Beschreibung</th>
+                    <th style="width: 10%; text-align: right; color: #007C90; font-weight: bold;">LE</th>
+                </tr>
+            </thead><tbody>';
+
+            foreach ($module_rows as $row) {
+                $html .= '<tr>
+                    <td valign="top" style="width: 20%; font-weight: bold; color: #1e293b; padding-top: 4px; padding-bottom: 4px;">' . esc_html($row['modul']) . '</td>
+                    <td valign="top" style="width: 70%; color: #334155; padding-top: 4px; padding-bottom: 4px;">' . esc_html($row['titel']) . '</td>
+                    <td valign="top" style="width: 10%; text-align: right; color: #64748b; padding-top: 4px; padding-bottom: 4px;">' . (!empty($row['le']) ? esc_html($row['le']) : '') . '</td>
+                </tr>';
+            }
+            $html .= '</tbody></table>';
         }
 
-        // 2. Zeiteinteilung / Lehreinheiten-Aufteilung
+        // 2. Zeiteinteilung / Lehreinheiten-Aufteilung (Layout exakt wie "Ihre Investition")
         if (!empty($breakdown_rows)) {
-            if (!empty($module_rows)) {
-                $html .= '<tr>
-                    <td colspan="3" style="border-top: 1px solid #cbd5e1; padding-top: 8px; padding-bottom: 3px;">
-                        <span style="font-size: 9.5pt; font-weight: bold; color: #007C90; text-transform: uppercase;">Zeiteinteilung / Lehreinheiten:</span>
-                    </td>
-                </tr>';
+            if (!empty($html)) {
+                $html .= '<div style="font-size:10pt">&nbsp;</div>';
             }
+            $total_breakdown_le = 0;
+            $html .= '<table cellpadding="6" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 10pt;">';
+            $html .= '<thead>
+                <tr style="background-color:#f2f2f2;">
+                    <th style="text-align:left; width:85%; border-bottom:1px solid #aaa; font-weight: bold; color: #1e293b;">Zeiteinteilung / Lehreinheiten</th>
+                    <th style="text-align:right; width:15%; border-bottom:1px solid #aaa; font-weight: bold; color: #1e293b;">LE</th>
+                </tr>
+            </thead><tbody>';
+
             foreach ($breakdown_rows as $row) {
+                $le_num = intval(preg_replace('/[^0-9]/', '', $row['le']));
+                $total_breakdown_le += $le_num;
+
+                $clean_tit = ltrim($row['titel'], "+-• \t\n\r");
+                $prefix_symbol = !empty($row['prefix']) ? $row['prefix'] : '+';
+                $prefix_html = '<span style="color: #007C90; font-weight: bold;">' . esc_html($prefix_symbol) . '</span> ';
+
                 $html .= '<tr>
-                    <td valign="top" colspan="2" style="width: 90%; color: #334155; padding-top: 3px; padding-bottom: 3px; padding-left: 8px;">
-                        <strong style="color: #007C90;">' . esc_html($row['prefix']) . '</strong> ' . esc_html($row['titel']) . '
-                    </td>
-                    <td valign="top" style="width: 10%; text-align: right; font-weight: bold; color: #0f172a; padding-top: 3px; padding-bottom: 3px;">' . esc_html($row['le']) . '</td>
+                    <td style="width:85%; color: #334155; line-height: 1.4;">' . $prefix_html . esc_html($clean_tit) . '</td>
+                    <td style="width:15%; text-align:right; font-weight: bold; color: #0f172a;">' . esc_html($row['le']) . '</td>
+                </tr>';
+                $html .= '<tr><td colspan="2" style="border-bottom:0.5pt dashed #ccc;"></td></tr>';
+            }
+
+            // Summenzeile wie bei "Ihre Investition" (Gesamt Brutto)
+            if ($total_breakdown_le > 0) {
+                $html .= '<tr style="background-color:#f9f9f9;">
+                    <td style="width:85%;"><strong>Gesamt Lehreinheiten</strong></td>
+                    <td style="width:15%; text-align:right;"><strong>' . $total_breakdown_le . ' LE</strong></td>
                 </tr>';
             }
+
+            $html .= '</tbody></table>';
         }
 
         // 3. Mehrwert / Inklusive Leistungen
         if (!empty($extra_rows) || !empty($section_title)) {
-            $title_display = !empty($section_title) ? $section_title : 'Ihr Mehrwert';
-            $html .= '<tr>
-                <td colspan="3" style="border-top: 1px solid #cbd5e1; padding-top: 8px; padding-bottom: 4px;">
-                    <span style="font-size: 9.5pt; font-weight: bold; color: #007C90; text-transform: uppercase;">&lt; ' . esc_html($title_display) . ' &gt;</span>
-                </td>
-            </tr>';
+            if (!empty($html)) {
+                $html .= '<div style="font-size:10pt">&nbsp;</div>';
+            }
+            $raw_title = !empty($section_title) ? $section_title : 'Ihr Mehrwert';
+            $clean_title = trim(str_replace(['<', '>', '&lt;', '&gt;', '&LT;', '&GT;'], '', html_entity_decode($raw_title, ENT_QUOTES, 'UTF-8')));
+            $clean_title = !empty($clean_title) ? mb_strtoupper($clean_title, 'UTF-8') : 'IHR MEHRWERT';
+            $html .= '<table cellpadding="5" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 10pt;">
+                <thead>
+                    <tr style="background-color: #f2f2f2;">
+                        <th colspan="2" style="text-align: left; border-bottom: 1px solid #aaa; font-weight: bold; color: #007C90;">&lt; ' . esc_html($clean_title) . ' &gt;</th>
+                    </tr>
+                </thead>
+                <tbody>';
             foreach ($extra_rows as $row) {
                 $html .= '<tr>
-                    <td valign="top" style="width: 20%; font-weight: bold; color: #007C90; padding-top: 3px; padding-bottom: 3px;">' . esc_html($row['label']) . '</td>
-                    <td valign="top" style="width: 80%; color: #334155; padding-top: 3px; padding-bottom: 3px;" colspan="2">' . esc_html($row['titel']) . '</td>
-                </tr>';
+                    <td valign="top" style="width: 25%; font-weight: bold; color: #007C90; padding-top: 4px; padding-bottom: 4px;">' . esc_html($row['label']) . '</td>
+                    <td valign="top" style="width: 75%; color: #334155; padding-top: 4px; padding-bottom: 4px;">' . esc_html($row['titel']) . '</td>
+                </tr>
+                <tr><td colspan="2" style="border-bottom: 0.5pt dashed #ccc;"></td></tr>';
             }
+            $html .= '</tbody></table>';
         }
 
-        $html .= '</tbody></table>';
         return $html;
     }
 
@@ -556,7 +726,11 @@ class CRM_Model
      */
     private function get_anmeldung_agb_html()
     {
-        return '<p>Mit Ihrer Anmeldung bestätigen Sie die <a href="https://www.x-sieben.at/wp-content/uploads/2018/05/AGB_X_SIEBEN.pdf">AGB</a> samt Widerrufsbelehrung der X SIEBEN Wirtschaftstraining GmbH gelesen und akzeptiert zu haben. Diese finden Sie auf unserer Website unter ‚AGB‘ oder auf Wunsch per E-Mail. Die Datenschutzerklärung finden Sie <a href="https://www.x-sieben.at/datenschutzerklaerung/">hier</a></p>';
+        $agb_custom = $this->get_crm_field('AGB text');
+        if (!empty(trim(strip_tags($agb_custom)))) {
+            return $agb_custom;
+        }
+        return '<p>Mit Ihrer Anmeldung bestätigen Sie die <a href="https://x-sieben.at/wp-content/uploads/2025/09/AGB_X_SIEBEN_2025.pdf">AGB</a> samt Widerrufsbelehrung der X SIEBEN Wirtschaftstraining GmbH gelesen und akzeptiert zu haben. Diese finden Sie auf unserer Website unter ‚AGB‘ oder auf Wunsch per E-Mail. Die Datenschutzerklärung finden Sie <a href="https://x-sieben.at/datenschutzerklaerung/">hier</a></p>';
     }
 
     /**
@@ -656,11 +830,11 @@ class CRM_Model
                 wp_reset_postdata();
             }
         }
-        $zert_images = '<table cellpadding="5"><tr>';
+        $zert_images = '<table cellpadding="0" cellspacing="5" border="0"><tr>';
         foreach ($zert_images_url as $image) {
             $zert_images .= '
-            <td cellpadding="15" style="width:80px; border: solid black 1px;">
-                <img src="' . esc_url($image) . '" style="max-width:100%;">
+            <td cellpadding="6" style="width:58px; height:34px; border: 1px solid #cbd5e1; text-align: center; vertical-align: middle;">
+                <img src="' . esc_url($image) . '" style="max-width: 100%; max-height: 24px;">
             </td>';
         }
         $zert_images .= '</tr></table>';
@@ -793,23 +967,24 @@ class CRM_Model
     private function _extract_module_title_and_body(string $chunk): array
     {
         $chunk = trim($chunk);
-        // Verwaiste Schlusstags und führende Trennzeichen entfernen
-        $chunk = preg_replace('/^(?:\s*<\/(?:strong|b|span|em|i|h[1-6]|p|div)>\s*)+/iu', '', $chunk);
         $chunk = preg_replace('/^[:\s–\-]+/u', '', $chunk);
 
         $mod_title = '';
-        $mod_body = $chunk;
+        $mod_body  = $chunk;
 
-        if (preg_match('/^(?:<(?:strong|b|span|em|i|h[1-6]|p)[^>]*>\s*)*(.*?)(?:<\/(?:strong|b|span|em|i|h[1-6]|p)>\s*)*(?:\n\n|\n|<br\s*\/?>|<\/h[1-6]>|<\/p>|<p>|<ul>|<hr)/isu', $chunk, $title_match)) {
-            $candidate = trim(strip_tags($title_match[1]));
+        // Der Titel endet bei </strong>, </b>, </span>, </p>, </h[1-6]>, <br> oder \n
+        // Alles Folgende (einschließlich nachfolgender <ul>, <p> etc.) gehört zum Body
+        if (preg_match('/^(.*?)(<\/(?:strong|b|span|em|i|h[1-6]|p)>|<br\s*\/?>|\n)/isu', $chunk, $m)) {
+            $candidate = trim(strip_tags($m[1]));
             $candidate = preg_replace('/^[:\s–\-]+/u', '', $candidate);
-            if (!empty($candidate) && !preg_match('/^\b(?:Zielgruppe|Ziel|Ziele|Inhalte|Inhalt|Methodik|Didaktik|Voraussetzungen)\b\s*[:\s–\-]/iu', $candidate) && strlen($candidate) < 180) {
+            if (!empty($candidate) && !preg_match('/^\b(?:Zielgruppe|Ziel|Ziele|Inhalte|Inhalt|Methodik|Didaktik|Voraussetzungen)\b\s*[:\s–\-]/iu', $candidate) && strlen($candidate) < 250) {
                 $mod_title = $candidate;
-                $mod_body = substr($chunk, strlen($title_match[0]));
+                $mod_body  = substr($chunk, strlen($m[0]));
             }
         }
 
-        $mod_body = preg_replace('/^(?:\s*<\/(?:strong|b|span|em|i|h[1-6]|p|div)>\s*)+/iu', '', $mod_body);
+        // Verwaiste Schlusstags und führende Trennzeichen entfernen
+        $mod_body = preg_replace('/^(?:\s*(?:<\/(?:strong|b|span|em|i|h[1-6]|p|div)>|<br\s*\/?>)\s*)+/iu', '', $mod_body);
         $mod_body = preg_replace('/^[:\s–\-]+/u', '', $mod_body);
 
         return [trim($mod_title), trim($mod_body)];
@@ -826,8 +1001,10 @@ class CRM_Model
         // 1. Redundante Trennlinien entfernen
         $body = preg_replace('/<hr[^>]*>/iu', '', $body);
 
-        // 2. Standard-Labels (Ziel, Inhalte etc.) hervorheben
-        $labels_regex = '/(?:<(?:p|div|h[4-6])[^>]*>\s*)?(?:<(?:strong|b|span)[^>]*>\s*)?\b(Zielgruppe|Ziel|Ziele|Inhalte|Inhalt|Methodik|Didaktik|Voraussetzungen)\b\s*[:\s–\-]*(?:\s*<\/(?:strong|b|span)>)*\s*[:\s–\-]*(?:<\/(?:p|div|h[4-6])>)?/iu';
+        // 2. Standard-Labels (Ziel:, Inhalte: etc.) hervorheben
+        // Nur matchen, wenn zwingend ein Doppelpunkt oder Gedankenstrich folgt (z.B. "Inhalte:", "Ziele:"),
+        // damit Wörter im Fließtext wie "Inhalte, die verkaufen" oder "gesetzter Ziele" unberührt bleiben!
+        $labels_regex = '/(?:<(?:p|div|h[4-6])[^>]*>\s*)?(?:<(?:strong|b|span)[^>]*>\s*)?\b(Zielgruppe|Ziele|Ziel|Inhalte|Inhalt|Methodik|Didaktik|Voraussetzungen)\b(?:\s*<\/(?:strong|b|span)>)*\s*[:–\-]\s*(?:<\/(?:p|div|h[4-6])>)?/iu';
         $body = preg_replace_callback($labels_regex, function($m) {
             $lbl = ucfirst(strtolower($m[1]));
             if ($lbl === 'Inhalt') $lbl = 'Inhalte';
@@ -839,6 +1016,15 @@ class CRM_Model
         $body = preg_replace('/<li[^>]*>\s*<p[^>]*>(.*?)<\/p>\s*<\/li>/isu', '<li>$1</li>', $body);
         $body = preg_replace('/<ul[^>]*>/iu', '<ul class="modul-list">', $body);
 
+        // Vor <ul> und nach </ul> Doppelzeilenumbrüche erzwingen, damit Listen nicht in <p> eingeschlossen werden
+        $body = preg_replace('/(?<!\n)\s*(<ul\b|<ol\b)/iu', "\n\n$1", $body);
+        $body = preg_replace('/(<\/ul>|<\/ol>)\s*(?!\n)/iu', "$1\n\n", $body);
+
+        // Newlines innerhalb von <ul> und <ol> normalisieren (keine \n\n innerhalb von Listen)
+        $body = preg_replace_callback('/<(ul|ol)[^>]*>.*?<\/\1>/isu', function($matches) {
+            return preg_replace('/\n{2,}/', "\n", $matches[0]);
+        }, $body);
+
         // 4. Absätze sauber formatieren
         $paragraphs = preg_split('/\n{2,}/', $body);
         $clean_paras = [];
@@ -847,6 +1033,9 @@ class CRM_Model
             if (empty($p)) continue;
             if (preg_match('/^<(?:p|ul|ol|table|div|h[1-6]|blockquote)/i', $p)) {
                 $clean_paras[] = $p;
+            } elseif (preg_match('/^<li/i', $p)) {
+                // Falls verwaiste li-Tags existieren, in saubere ul einbetten
+                $clean_paras[] = '<ul class="modul-list">' . $p . '</ul>';
             } else {
                 $clean_paras[] = '<p class="modul-text">' . $p . '</p>';
             }
@@ -868,21 +1057,7 @@ class CRM_Model
      */
     private function _clean_generic_section_html(string $html): string
     {
-        $html = preg_replace('/<hr[^>]*>/iu', '', $html);
-        $html = preg_replace('/<h[1-6][^>]*>(.*?)<\/h[1-6]>/isu', '<p><strong>$1</strong></p>', $html);
-        $html = preg_replace('/<ul[^>]*>/iu', '<ul class="modul-list">', $html);
-        $paragraphs = preg_split('/\n{2,}/', $html);
-        $clean_paras = [];
-        foreach ($paragraphs as $p) {
-            $p = trim($p);
-            if (empty($p)) continue;
-            if (preg_match('/^<(?:p|ul|ol|table|div|blockquote)/i', $p)) {
-                $clean_paras[] = $p;
-            } else {
-                $clean_paras[] = '<p class="modul-text">' . $p . '</p>';
-            }
-        }
-        return implode("\n", $clean_paras);
+        return $this->_clean_module_body_html($html);
     }
 
     /**
@@ -1237,6 +1412,10 @@ class CRM_Model
     }
     private function get_ps_html(): string
     {
+        $ps_custom = $this->get_crm_field('Angebot PS');
+        if (!empty(trim(strip_tags($ps_custom)))) {
+            return '<table style="font-size:10pt;"><tr><td style="margin:0; padding:0;">' . $ps_custom . '</td></tr></table>';
+        }
         return '<table style="font-size:10pt;">
                     <tr>
                         <td style="margin:0; padding:0;">PS: Die <strong>Bewertungen unserer Kursteilnehmer</strong> finden Sie auf der externen Bewertungsplattform <a href="https://www.x-sieben.at/provenexpert.com/x-sieben-wirtschaftstraining/?utm_source=Widget&utm_medium=Widget&utm_campaign=Widget">ProvenExpert</a>! <br>
@@ -1305,9 +1484,9 @@ class CRM_Model
 
     private function get_signature_html(): string
     {
-        return '<div>' . $this->signatur_icon . '</div>
+        return '<div>' . $this->signatur_icon . '<br>
     <span style="font-size: 10pt;">Mag. Dr. Johannes Gasberger<br></span>
-    <span style="font-size: 9pt; margin-top: -15px; margin-bottom: 30px;">Geschäftsführer | X SIEBEN Wirtschaftstraining GmbH</span></div>';
+    <span style="font-size: 9pt; color: #475569;">Geschäftsführer | X SIEBEN Wirtschaftstraining GmbH</span></div>';
     }
 
     public function get_diplom_success(): ?string
@@ -1354,21 +1533,5 @@ class CRM_Model
             </tr>
         </table>
     ';
-    }
-
-    /**
-     * Get typed ParticipantDTO.
-     */
-    public function getParticipant(): ?ParticipantDTO
-    {
-        return $this->participantDTO;
-    }
-
-    /**
-     * Get typed CourseDTO.
-     */
-    public function getCourse(): ?CourseDTO
-    {
-        return $this->courseDTO;
     }
 }

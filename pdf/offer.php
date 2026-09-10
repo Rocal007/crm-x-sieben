@@ -21,8 +21,8 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true)
             width:100%;
         }
         .text {
-            line-height: 18pt;
-            font-size:11pt;
+            line-height: 14pt;
+            font-size: 10.5pt;
         }
         .clear {font-size:unset;}
         a {color: #04b3ce}
@@ -84,65 +84,83 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true)
                     </td>
                 </tr>
             </table>';
-    $html_part1 .= '<div style="font-size:10pt">&nbsp;</div>';
+    $html_part1 .= '<div style="font-size:6pt">&nbsp;</div>';
     $html_part1 .= $course->get_pdf_title($course->titel_short, 'Angebot');
-    $html_part1 .= '<div style="font-size:10pt">&nbsp;</div>';
-    $html_part1 .= '<table class="text">
+    $html_part1 .= '<div style="font-size:6pt">&nbsp;</div>';
+    // Dynamische Texte aus dem CRM Model (PDF Editor) mit Default-Fallback
+    $angebot_default_intro = 'Danke für Ihr Interesse und willkommen bei der beliebten X SIEBEN Veranstaltung ' . $course->title . ' mit lernförderndem Kleingruppen-Unterricht.<br><br>Diese Veranstaltung fokussiert auf ' . $course->zielgruppe;
+    $angebot_intro         = $course->get_crm_field_with_default('Angebot - Einleitung', $angebot_default_intro);
+    $angebot_gruss         = $course->get_crm_field_with_default('Angebot - Grußformel', "Ich freue mich über Ihre Rückmeldung / Buchung.<br>\nMit freundlichen Grüßen,");
+
+    // Clean up wpautop / HTML paragraph wrappers for clean, uniform spacing inside table cell
+    $clean_pdf_text = function ($html) {
+        $html = preg_replace('/<div[^>]*>\s*(?:&nbsp;|\x{00a0})?\s*<\/div>/iu', '<br><br>', $html);
+        $html = preg_replace('/^\s*<p[^>]*>/iu', '', $html);
+        $html = preg_replace('/<\/p>\s*<p[^>]*>/iu', '<br><br>', $html);
+        $html = preg_replace('/<\/p>\s*$/iu', '', $html);
+        $html = preg_replace('/(?:<br\s*\/?>\s*){3,}/iu', '<br><br>', $html);
+        return trim($html);
+    };
+
+    $angebot_intro = $clean_pdf_text($angebot_intro);
+    $angebot_gruss = $clean_pdf_text($angebot_gruss);
+
+    $salutation_name = trim($course->salutation . ' ' . trim($course->titel . ' ' . $course->vorname . ' ' . $course->nachname));
+    $salutation_name = preg_replace('/\s+/', ' ', $salutation_name);
+
+    $html_part1 .= '<table class="text" style="width: 100%;">
                 <tr>
-                    <td>' . $course->salutation . ' ' . $course->vorname . ' ' . $course->nachname . ',
-                        <div style="font-size:11pt">&nbsp;</div>
-                        Danke für Ihr Interesse und willkommen bei der beliebten X SIEBEN Veranstaltung ' . $course->title . ' mit lernförderndem Kleingruppen-Unterricht.
-                        <div style="font-size:11pt">&nbsp;</div>
-                        Diese Veranstaltung fokussiert auf ' . $course->zielgruppe . '<br>
+                    <td>' . esc_html($salutation_name) . ',<br><br>' .
+                        $angebot_intro . '<br><br>' .
+                        $angebot_gruss . '
                     </td>
                 </tr>
             </table>';
-    $html_part1 .= 'Ich freue mich über Ihre Rückmeldung / Buchung.<br>
-Mit freundlichen Grüßen,
-    </div>';
+    $html_part1 .= '<div style="font-size:6pt">&nbsp;</div>';
     $html_part1 .= $course->signatur;
-    $html_part1 .= '<div style="font-size:25pt">&nbsp;</div>';
-    $html_part1 .= $course->ps;
     $html_part1 .= '<div style="font-size:10pt">&nbsp;</div>';
+    $html_part1 .= $course->ps;
+    $html_part1 .= '<div style="font-size:8pt">&nbsp;</div>';
     $html_part1 .= '
-    <div><strong>Nachstehend: </strong>Veranstaltungsinformationen | Anhang 1: Details zu den Inhalten der Veranstaltung | Anhang 2: Exklusive Zusatzleistungen
-                </div>';
+    <div style="font-size: 9pt;"><strong>Nachstehend: </strong>Veranstaltungsinformationen | Anhang 1: Details zu den Inhalten der Veranstaltung | Anhang 2: Exklusive Zusatzleistungen</div>';
     $html_part1 .= '<tcpdf method="AddPage" />';
     $html_part1 .= $course->get_pdf_title($course->titel_short, 'Veranstaltungsinformationen');
-    $html_part1 .= '<div style="font-size:10pt">&nbsp;</div>';
+    $html_part1 .= '<div style="font-size:16pt">&nbsp;</div>';
     $html_part1 .= '<table style="font-size: 11pt;">
             <tr>
                 <td style="width:6%;">' . $course->calender_icon . '</td>
                 <td style="width:94%;"><div style="font-size:3pt">&nbsp;</div> Vom <strong>' . $course->start_datum . '</strong> bis einschließlich<strong> ' . $course->end_datum . '</strong></td>
             </tr>
         </table>';
-    $html_part1 .= crm_pdf_divider('#cbd5e1', 3, 5);
+    $html_part1 .= crm_pdf_divider('#cbd5e1', 6, 8);
     $html_part1 .= '<div style="font-size: 11pt;">Diese Veranstaltung beinhaltet <strong>' . $course->anzahl_le . ' Lehreinheiten</strong> (LE, 1 LE = 45min).</div>';
-    $html_part1 .= '<div style="font-size:2pt">&nbsp;</div>';
     $html_part1 .= $course->module_html;
-    $html_part1 .= crm_pdf_divider('#cbd5e1', 4, 8);
+    $html_part1 .= '<div style="font-size:8pt">&nbsp;</div>';
+    $html_part1 .= crm_pdf_divider('#cbd5e1', 6, 8);
     $html_part1 .= '
         <table class="text">
                     <tr>
-                        <td><strong>ZERTIFIZIERUNGSPARTNER ...</strong></td>
+                        <td><strong style="color: #0f172a; font-size: 10.5pt;">ZERTIFIZIERUNGSPARTNER ...</strong></td>
                     </tr>
         </table>';
-    $html_part1 .= '<div style="font-size:10pt">&nbsp;</div>';
+    $html_part1 .= '<div style="font-size:6pt">&nbsp;</div>';
     $html_part1 .= $course->zertifizierungen_images_html;
-    $html_part1 .= crm_pdf_divider('#cbd5e1', 4, 8);
-    $html_part1 .= '<table class="text">   
+    $html_part1 .= crm_pdf_divider('#cbd5e1', 8, 10);
+
+    $default_ort_durchfuehrung = '<table class="text">   
                         <tr>
-                            <td style="width:92%;">ORT: X SIEBEN Wirtschaftstraining, Rochusgasse 6 in 1030 Wien</td>
+                            <td style="width:92%; font-size: 10.5pt;"><strong>ORT:</strong> X SIEBEN Wirtschaftstraining, Rochusgasse 6 in 1030 Wien</td>
                         </tr>
-                    </table>';
-    $html_part1 .= '<div style="font-size:10pt">&nbsp;</div>';
-    $html_part1 .= '<table class="text">
+                    </table>
+                    <div style="font-size:12pt">&nbsp;</div>
+                    <table class="text">
                     <tr>
-                        <td>Durchführung unserer Schulungen: Online Unterricht | vor Ort in unseren Veranstaltungsräumen | Blended Learning 
-                        Hinweis: Die Schulung wird bis zur TeilnehmerInnen-Anzahl von drei Personen adequat verkürzt, wobei alle Inhalte vermittelt werden.
+                        <td style="line-height: 16pt; color: #334155;">Durchführung unserer Schulungen: Online Unterricht | vor Ort in unseren Veranstaltungsräumen | Blended Learning<br>
+                        <span style="color: #475569; font-size: 9.5pt;">Hinweis: Die Schulung wird bis zur TeilnehmerInnen-Anzahl von drei Personen adäquat verkürzt, wobei alle Inhalte vermittelt werden.</span>
                         </td>
                     </tr>
             </table>';
+    $html_part1 .= $course->get_crm_field_with_default('Angebot - Ort und Durchführung', $default_ort_durchfuehrung);
     $html_abschluss = $styles;
     $html_abschluss .= $course->get_pdf_title($course->titel_short);
     $html_abschluss .= '<div style="font-size:20pt">&nbsp;</div>';
@@ -230,14 +248,21 @@ Mit freundlichen Grüßen,
         {
             public $header_content = '';
             public $logo_html = '';
+            public $footer_text = '';
+
+            public function __construct($orientation='P', $unit='mm', $format='A4', $unicode=true, $encoding='UTF-8', $diskcache=false, $pdfa=false)
+            {
+                parent::__construct($orientation, $unit, $format, $unicode, $encoding, $diskcache, $pdfa);
+                // Schützt temporäre Cache-Dateien (z. B. Alpha-Masken von PNG-Logos) vor vorzeitiger Löschung durch TCPDF-Tabellen-Transaktionskopien
+                self::$cleaned_ids[$this->file_id] = true;
+            }
+
             public function Header()
             {
                 if ($this->getPage() == 1) {
-                    $this->SetY(15);
-                    $this->writeHTMLCell(0, 0, 10, 10, $this->header_content, 0, 1, 0, true, 'L', true);
+                    $this->writeHTMLCell(0, 0, 15, 6, $this->header_content, 0, 1, 0, true, 'L', true);
                 } else {
-                    $this->SetY(15);
-                    $this->writeHTMLCell(0, 0, 10, 10, $this->logo_html, 0, 1, 0, true, 'L', true);
+                    $this->writeHTMLCell(0, 0, 15, 6, $this->logo_html, 0, 1, 0, true, 'L', true);
                 }
             }
             public function Footer()
@@ -245,11 +270,11 @@ Mit freundlichen Grüßen,
                 $this->SetY(-15);
                 if ($this->getPage() == 1) {
                     $this->SetFont('dejavusans', '', 8);
+                    $footer_txt = !empty($this->footer_text) ? $this->footer_text : ("UID: ATU76624137 | Firmenbuchgericht: Landesgericht Wiener Neustadt\nFirmenbuchnummer: FN 550277 g");
                     $this->MultiCell(
                         0,
                         4,
-                        "UID: ATU76624137 | Firmenbuchgericht: Landesgericht Wiener Neustadt\n" .
-                            "Firmenbuchnummer: FN 550277 g",
+                        $footer_txt,
                         0,
                         'C'
                     );
@@ -265,27 +290,42 @@ Mit freundlichen Grüßen,
                     );
                 }
             }
+
+            public function cleanupTempFiles()
+            {
+                unset(self::$cleaned_ids[$this->file_id]);
+                $this->_destroy(true);
+            }
         }
     }
 
     $pdf = new MYPDFA_Angebot(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
     $pdf_name = "A_" . $nummer . "_" . $safe_title . "_" . $course->vorname . "_" . $course->nachname . ".pdf";
+
+    $header_company_name    = !empty($course->company_name) ? $course->company_name : 'X SIEBEN Wirtschaftstraining GmbH';
+    $header_company_address = !empty($course->company_address) ? $course->company_address : 'Kurzegasse 7, 2493 Lichtenwörth';
+    $header_company_phone   = !empty($course->company_phone) ? $course->company_phone : '0800 700 170';
+    $header_company_email   = !empty($course->company_email) ? $course->company_email : 'office@x-sieben.at';
+
     $header_html_content = '<table cellspacing="0" cellpadding="0" border="0" style="text-align: left;">
         <tr>
             <td style="font-size: 9pt; width:60%;">' . $course->xsieben_logo . '
             <div style="font-size:11pt">&nbsp;</div>
             </td>
             <td style="font-size: 9pt; width:40%; text-align: right">
-                X SIEBEN Wirtschaftstraining GmbH <br>
-                Kurzegasse 7, 2493 Lichtenwörth <br>
-                Telefon: 0800 700 170 <br>
-                E-Mail: office@x-sieben.at
+                ' . htmlspecialchars($header_company_name) . ' <br>
+                ' . htmlspecialchars($header_company_address) . ' <br>
+                Telefon: ' . htmlspecialchars($header_company_phone) . ' <br>
+                E-Mail: ' . htmlspecialchars($header_company_email) . '
             </td>
         </tr>
     </table>';
 
     $pdf->header_content = $header_html_content;
-    $pdf->logo_html = $course->xsieben_logo;
+    $pdf->logo_html       = $course->xsieben_logo;
+    $pdf->footer_text     = !empty($course->company_uid)
+        ? ("UID: " . $course->company_uid . " | Firmenbuchgericht: " . $course->company_court . "\nFirmenbuchnummer: " . $course->company_fn)
+        : "UID: ATU76624137 | Firmenbuchgericht: Landesgericht Wiener Neustadt\nFirmenbuchnummer: FN 550277 g";
 
     $pdf->SetCreator(PDF_CREATOR);
     $pdf->SetAuthor($pdfAuthor);
@@ -320,6 +360,7 @@ Mit freundlichen Grüßen,
     $pdf->writeHTML($html_anmeldung, true, false, true, false, '');
 
     $pdf->Output(get_template_directory() . '/angebote/' . $pdf_name, 'F');
+    $pdf->cleanupTempFiles();
     $pdf_url = get_template_directory_uri() . '/angebote/' . $pdf_name;
     if ($output_to_browser) {
         x_sieben_pdf_preview($pdf_url, $course_id, $entry_id, 'xsieben_angebot');

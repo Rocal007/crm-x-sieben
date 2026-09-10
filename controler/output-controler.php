@@ -2,8 +2,6 @@
 
 require_once dirname(__DIR__) . '/helpers/crm-status.php';
 require_once dirname(__DIR__) . '/helpers/normalize.php';
-require_once dirname(__DIR__) . '/repositories/CrmStatusRepository.php';
-require_once dirname(__DIR__) . '/services/StatusTransitionService.php';
 
 /**
  * Display a PDF preview with action buttons in WP Admin, or switch to the email mailer.
@@ -368,13 +366,48 @@ add_action('wp_ajax_x_sieben_send_mail', function () {
     }
 
     // Case 2: LIVE EMAIL OR BOTH TEST & CUSTOMER
-    $statusRepo = new CrmStatusRepository();
-    $transitionService = new StatusTransitionService();
-    $current_status_key = $entry_id ? $statusRepo->getCurrentStatusKey($entry_id) : '';
+    global $wpdb;
+    $current_status_key = '';
+    if ($entry_id) {
+      $table_status = $wpdb->prefix . 'crm_entry_status';
+      $current_status_key = $wpdb->get_var($wpdb->prepare("SELECT status_key FROM $table_status WHERE entry_id = %d", $entry_id));
+    }
 
-    $nextStatus = $transitionService->resolveNextStatus($current_status_key, $context);
-    $status_key = $nextStatus['key'];
-    $status_label = $nextStatus['label'];
+    $status_key = 'angebot_gesendet';
+    $status_label = 'Angebot gesendet';
+
+    if ($context === 'kurszeitenbestaetigung' || $context === 'xsieben_kurszeitenbestaetigung') {
+      if ($current_status_key === 'angebot_gesendet') {
+        // Angebot wurde bereits versendet, jetzt auch KB -> beide sind versendet!
+        $status_key = 'angebot_und_kurszeiten_gesendet';
+        $status_label = 'Angebot & KB gesendet';
+      } else {
+        $status_key = 'kurszeitenbestaetigung_gesendet';
+        $status_label = 'Kurszeitenbestätigung gesendet';
+      }
+    } elseif ($context === 'xsieben_angebot_kurszeiten' || $context === 'xsieben_angebot_und_kurszeiten') {
+      $status_key = 'angebot_und_kurszeiten_gesendet';
+      $status_label = 'Angebot & KB gesendet';
+    } elseif ($context === 'teilnahmebestaetigung' || $context === 'xsieben_teilnahmebestaetigung') {
+      $status_key = 'teilnahmebestaetigung_gesendet';
+      $status_label = 'Teilnahmebestätigung gesendet';
+    } elseif ($context === 'xsieben_diplom' || $context === 'diplom') {
+      $status_key = 'diplom_gesendet';
+      $status_label = 'Diplom gesendet';
+    } elseif ($context === 'anmeldung' || $context === 'xsieben_anmeldung') {
+      $status_key = 'angemeldet';
+      $status_label = 'Anmeldung gesendet';
+    } else {
+      // Angebot versendet
+      if ($current_status_key === 'kurszeitenbestaetigung_gesendet') {
+        // KB wurde bereits versendet, jetzt auch Angebot -> beide sind versendet!
+        $status_key = 'angebot_und_kurszeiten_gesendet';
+        $status_label = 'Angebot & KB gesendet';
+      } else {
+        $status_key = 'angebot_gesendet';
+        $status_label = 'Angebot gesendet';
+      }
+    }
 
     if ($entry_id && function_exists('crm_set_entry_status')) {
       if ($is_test_mode && $test_mode_type === 'both') {
