@@ -78,14 +78,16 @@ function crm_get_js_cache_version(): string
  */
 function crm_get_asset_version(?string $base_version = null): string
 {
-    $base = $base_version ?? (defined('CRM_VERSION') ? CRM_VERSION : '2.18.0');
+    $base = $base_version ?? (defined('CRM_VERSION') ? CRM_VERSION : '2.18.1');
+    $js_file = dirname(__DIR__) . '/assets/crm-admin.js';
+    $mtime = file_exists($js_file) ? (string) filemtime($js_file) : (string) time();
 
     if (!crm_is_js_cache_clean_enabled()) {
-        return $base;
+        return $base . '.' . $mtime;
     }
 
     $cache_ver = crm_get_js_cache_version();
-    return $base . '.' . $cache_ver;
+    return $base . '.' . $cache_ver . '.' . $mtime;
 }
 
 /**

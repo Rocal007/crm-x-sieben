@@ -19,7 +19,7 @@
 
 // --- Core Setup & Helpers ---
 if (!defined('CRM_VERSION')) {
-    define('CRM_VERSION', '2.18.0');
+    define('CRM_VERSION', '2.18.1');
 }
 
 require_once __DIR__ . '/helpers/crm-cache.php';
@@ -111,6 +111,32 @@ add_action('admin_menu', function () {
 add_action('admin_enqueue_scripts', function ($hook) {
     $crm_pages = ['crm', 'crm-settings', 'crm-emails', 'crm-pdf'];
     if (isset($_GET['page']) && in_array($_GET['page'], $crm_pages, true)) {
+        // 1. Isolate CRM pages from conflicting / failing 3rd-party scripts
+        // a) auto-focus-keyword-for-seo throws 'Uncaught ReferenceError: php_vars is not defined'
+        wp_dequeue_script('afkw__metabox-script');
+        wp_dequeue_style('afkw__styles');
+        wp_deregister_script('afkw__metabox-script');
+        wp_deregister_style('afkw__styles');
+
+        // b) code-is-passion-libraries-plugin assets fail with 403 Forbidden on nginx mu-plugins
+        $cis_handles = [
+            'cis_post_selector', 'cis_post_selector_style',
+            'cis_admin_image_upload', 'cis_admin_image_selector_style',
+            'cis_admin_video_upload', 'cis_admin_video_selector_style',
+            'cis_admin_anyfile_upload', 'cis_admin_anyfile_selector_style',
+            'cis-admin-repeater', 'dubfriend-jquery-repeater', 'cis-admin-repeater-style',
+            'cis_admin_style', 'cis-js-globals', 'cis_il8n_admin_style',
+            'lib-cis-il8n', 'cis-seo-admin-css', 'cis-seo-admin-js',
+            'spinplusmin', 'cis-gdpr-footer', 'cis_parallax_teaser_widget',
+            'cis_editor_widget', 'cis-lib-ass'
+        ];
+        foreach ($cis_handles as $handle) {
+            wp_dequeue_script($handle);
+            wp_dequeue_style($handle);
+            wp_deregister_script($handle);
+            wp_deregister_style($handle);
+        }
+
         wp_enqueue_media();
         $asset_ver = function_exists('crm_get_asset_version') ? crm_get_asset_version() : CRM_VERSION;
 
@@ -144,6 +170,33 @@ add_action('admin_enqueue_scripts', function ($hook) {
         );
     }
 }, 99);
+
+// Late cleanup to prevent late enqueues from overriding isolation
+add_action('admin_print_scripts', function () {
+    $crm_pages = ['crm', 'crm-settings', 'crm-emails', 'crm-pdf'];
+    if (isset($_GET['page']) && in_array($_GET['page'], $crm_pages, true)) {
+        wp_dequeue_script('afkw__metabox-script');
+        wp_deregister_script('afkw__metabox-script');
+        $cis_handles = [
+            'cis_post_selector', 'cis_admin_image_upload', 'cis_admin_video_upload',
+            'cis_admin_anyfile_upload', 'cis-admin-repeater', 'dubfriend-jquery-repeater',
+            'cis-js-globals', 'lib-cis-il8n', 'cis-seo-admin-js', 'spinplusmin',
+            'cis-gdpr-footer', 'cis_parallax_teaser_widget', 'cis_editor_widget', 'cis-lib-ass'
+        ];
+        foreach ($cis_handles as $handle) {
+            wp_dequeue_script($handle);
+            wp_deregister_script($handle);
+        }
+    }
+}, 1000);
+
+// Safeguard against missing global variables on CRM pages (e.g. php_vars from 3rd party plugins)
+add_action('admin_head', function () {
+    $crm_pages = ['crm', 'crm-settings', 'crm-emails', 'crm-pdf'];
+    if (isset($_GET['page']) && in_array($_GET['page'], $crm_pages, true)) {
+        echo '<script>window.php_vars = window.php_vars || { disable_afk: "0", disable_auto_sync: "0", blacklist: "0" };</script>' . "\n";
+    }
+}, 1);
 
 
 
