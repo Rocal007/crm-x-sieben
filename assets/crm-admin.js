@@ -102,7 +102,8 @@
                 }
             } catch (e) { }
 
-            console.log(`[CRM Cache] ✓ Automatisches JS-Cache-Clean durchgeführt für: "${componentKey || 'all'}" (Flag: AKTIV, Keys bereinigt: ${clearedCount}, Version: ${crmData.cacheVersion || freshTimestamp})`);
+            const versionStr = (typeof crmData !== 'undefined' && crmData.cacheVersion) ? crmData.cacheVersion : freshTimestamp;
+            console.log(`[CRM Cache] ✓ Automatisches JS-Cache-Clean durchgeführt für: "${componentKey || 'all'}" (Flag: AKTIV, Keys bereinigt: ${clearedCount}, Version: ${versionStr})`);
 
             // 4. Dispatch Custom Event for external listeners
             document.dispatchEvent(new CustomEvent('crm:js-cache-cleaned', {
@@ -126,8 +127,8 @@ document.addEventListener("DOMContentLoaded", function () {
     // --- Variables ---
     const table = document.querySelector(".js-sort-table");
     const searchInput = document.getElementById("courseTableSearch");
-    const ajaxUrl = crmData.ajaxUrl;
-    const nonce = crmData.nonce;
+    const ajaxUrl = (typeof crmData !== 'undefined' && crmData.ajaxUrl) ? crmData.ajaxUrl : ((typeof ajaxurl !== 'undefined') ? ajaxurl : '/wp-admin/admin-ajax.php');
+    const nonce = (typeof crmData !== 'undefined' && crmData.nonce) ? crmData.nonce : '';
     const noticeContainer = document.getElementById('crm-ajax-notice-container');
     const detailsContainer = document.getElementById('crm-entry-details-container');
     const listView = document.getElementById('crm-list-view');
@@ -2647,6 +2648,7 @@ jQuery(document).ready(function ($) {
                             }
                         });
                     }
+                }
             },
             error: function () {
                 $btn.prop('disabled', false);
