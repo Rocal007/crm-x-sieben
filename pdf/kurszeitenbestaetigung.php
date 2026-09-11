@@ -30,8 +30,14 @@ function xsieben_kurszeitenbestaetigung_pdf($entry_id, $course_id, $output_to_br
     $selbststudium    = $course->selbststudium;  // now a key-value array
     $kurszeiten_datum = date('d.m.Y');
 
+    // Assets-Verzeichnis (autark)
+    $assets_dir   = get_template_directory() . '/inc/core/crm/assets/';
+    $stempel_file = file_exists($assets_dir . 'stempel.png') ? ($assets_dir . 'stempel.png') : ($assets_dir . 'Signatur_Blau.png');
+
     // Dateiname
-    $pdfName = "Kurszeitenbestaetigung_" . $vorname . "_" . $nachname . "_" . $file_title . ".pdf";
+    $safe_vorname  = sanitize_file_name($vorname ?: 'Kunde');
+    $safe_nachname = sanitize_file_name($nachname ?: 'Teilnehmer');
+    $pdfName       = "Kurszeitenbestaetigung_" . $safe_vorname . "_" . $safe_nachname . "_" . $file_title . ".pdf";
 
     $table_style = 'style="border: 1px solid black;"';
 
@@ -130,7 +136,7 @@ function xsieben_kurszeitenbestaetigung_pdf($entry_id, $course_id, $output_to_br
     <table cellspacing="0" cellpadding="0" style="width: 100%;">
         <tr>
             <td style="width: 46%; vertical-align: bottom;">
-                <img src="https://www.x-sieben.at/wp-content/uploads/2021/01/stempel_kurszeiten-e1610995257460.png" width="180px">
+                <img src="' . esc_attr($stempel_file) . '" width="180px">
             </td>
             <td style="width: 8%;"></td>
             <td style="width: 46%; vertical-align: bottom;">

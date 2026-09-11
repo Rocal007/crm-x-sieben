@@ -504,7 +504,9 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
     }
 
     $pdf = new MYPDFA_Angebot(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
-    $pdf_name = "A_" . $nummer . "_" . $safe_title . "_" . $course->vorname . "_" . $course->nachname . ".pdf";
+    $safe_vorname  = sanitize_file_name($course->vorname ?: 'Kunde');
+    $safe_nachname = sanitize_file_name($course->nachname ?: 'Angebot');
+    $pdf_name      = "A_" . $nummer . "_" . $safe_title . "_" . $safe_vorname . "_" . $safe_nachname . ".pdf";
 
     $header_company_name    = !empty($course->company_name) ? $course->company_name : 'X SIEBEN Wirtschaftstraining GmbH';
     $header_company_address = !empty($course->company_address) ? $course->company_address : 'Kurzegasse 7, 2493 Lichtenwörth';
@@ -643,9 +645,15 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
         }
     }
 
-    $pdf->Output(get_template_directory() . '/angebote/' . $pdf_name, 'F');
+    $save_dir = get_template_directory() . '/angebote/';
+    if (!file_exists($save_dir)) {
+        wp_mkdir_p($save_dir);
+    }
+    $save_path = $save_dir . $pdf_name;
+    $save_path = str_replace('/', DIRECTORY_SEPARATOR, $save_path);
+    $pdf->Output($save_path, 'F');
     $pdf->cleanupTempFiles();
-    $pdf_url = get_template_directory_uri() . '/angebote/' . $pdf_name;
+    $pdf_url = get_template_directory_uri() . '/angebote/' . rawurlencode($pdf_name);
     if ($output_to_browser) {
         x_sieben_pdf_preview($pdf_url, $course_id, $entry_id, 'xsieben_angebot');
     }

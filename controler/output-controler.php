@@ -17,6 +17,14 @@ function x_sieben_pdf_preview($pdf_url, $course_id, $entry_id = 0, $context = 'x
     $kb_url    = $pdf_url['kb'] ?? ($pdf_url[1] ?? '');
     $is_dual   = true;
   }
+  $cache_ts = time();
+  $add_cache_buster = function ($url) use ($cache_ts) {
+    if (empty($url)) return '';
+    return $url . (strpos($url, '?') !== false ? '&' : '?') . 't=' . $cache_ts;
+  };
+  $offer_embed_url = $add_cache_buster($offer_url);
+  $kb_embed_url    = $add_cache_buster($kb_url);
+  $single_embed_url= $add_cache_buster($pdf_url);
   $email_pdf_param = $is_dual ? ($offer_url . ',' . $kb_url) : $pdf_url;
 ?>
   <div id="x-sieben-container" class="wp-clearfix" style="display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;">
@@ -29,16 +37,16 @@ function x_sieben_pdf_preview($pdf_url, $course_id, $entry_id = 0, $context = 'x
         </h2>
         <?php if ($is_dual) : ?>
           <div class="crm-preview-doc-tabs" style="display:flex; gap:6px;">
-            <button type="button" class="button crm-preview-switch-embed active" data-url="<?php echo esc_url($offer_url); ?>" data-doc="angebot" style="border-color:#7c3aed; color:#6d28d9; font-weight:600; font-size:12px;">
+            <button type="button" class="button crm-preview-switch-embed active" data-url="<?php echo esc_url($offer_embed_url); ?>" data-doc="angebot" style="border-color:#7c3aed; color:#6d28d9; font-weight:600; font-size:12px;">
               <span class="dashicons dashicons-media-document" style="font-size:13px; vertical-align:text-top;"></span> 📄 Angebot
             </button>
-            <button type="button" class="button crm-preview-switch-embed" data-url="<?php echo esc_url($kb_url); ?>" data-doc="kb" style="color:#0f766e; font-size:12px;">
+            <button type="button" class="button crm-preview-switch-embed" data-url="<?php echo esc_url($kb_embed_url); ?>" data-doc="kb" style="color:#0f766e; font-size:12px;">
               <span class="dashicons dashicons-calendar-alt" style="font-size:13px; vertical-align:text-top;"></span> 📅 Kurszeiten (KB)
             </button>
           </div>
         <?php endif; ?>
       </div>
-      <embed src="<?php echo esc_url($offer_url); ?>" type="application/pdf" width="100%" height="450px" style="border: 1px solid #cbd5e1; border-radius: 6px;" />
+      <embed src="<?php echo esc_url($is_dual ? $offer_embed_url : $single_embed_url); ?>" type="application/pdf" width="100%" height="450px" style="border: 1px solid #cbd5e1; border-radius: 6px;" />
     </div>
 
     <div id="x-sieben-button-row" style="flex: 0 0 30%; display:flex; flex-direction:column; gap:10px; margin-top:<?php echo $is_dual ? '40px' : '70px'; ?>;">
@@ -46,20 +54,20 @@ function x_sieben_pdf_preview($pdf_url, $course_id, $entry_id = 0, $context = 'x
       <ul style="list-style: none; margin: 0; padding: 0;">
         <?php if ($is_dual) : ?>
           <li style="margin-bottom: 8px;">
-            <a href="<?php echo esc_url($offer_url); ?>" download class="button" data-doc-download="angebot" style="display:flex; align-items:center; gap:6px; font-weight:600; width:100%; justify-content:center;">
+            <a href="<?php echo esc_url($offer_embed_url); ?>" download class="button" data-doc-download="angebot" style="display:flex; align-items:center; gap:6px; font-weight:600; width:100%; justify-content:center;">
               <span class="dashicons dashicons-download"></span>
               Angebot herunterladen
             </a>
           </li>
           <li style="margin-bottom: 12px;">
-            <a href="<?php echo esc_url($kb_url); ?>" download class="button" data-doc-download="kb" style="display:flex; align-items:center; gap:6px; font-weight:600; width:100%; justify-content:center;">
+            <a href="<?php echo esc_url($kb_embed_url); ?>" download class="button" data-doc-download="kb" style="display:flex; align-items:center; gap:6px; font-weight:600; width:100%; justify-content:center;">
               <span class="dashicons dashicons-download"></span>
               Kurszeiten (KB) herunterladen
             </a>
           </li>
         <?php else : ?>
           <li style="margin-bottom: 10px;">
-            <a href="<?php echo esc_url($pdf_url); ?>" download>
+            <a href="<?php echo esc_url($single_embed_url); ?>" download>
               <span class="dashicons dashicons-download"></span>
               PDF herunterladen
             </a>

@@ -4,8 +4,10 @@ function xsieben_teilnahmebestaetigung_pdf($entry_id, $course_id, $output_to_bro
     // Model laden
     $course = new CRM_Model($course_id, $entry_id);
 
-    $pdfAuthor = 'XSieben Wirtschaftstraining GmbH';
-    $pdf_name  = "Teilnahmebestaetigung_" . $course->vorname . "_" . $course->nachname . "_" . $course->titel_short . ".pdf";
+    $safe_vorname  = sanitize_file_name($course->vorname ?: 'Kunde');
+    $safe_nachname = sanitize_file_name($course->nachname ?: 'Teilnehmer');
+    $safe_title    = sanitize_file_name($course->titel_short ?: 'Kurs');
+    $pdf_name      = "Teilnahmebestaetigung_" . $safe_vorname . "_" . $safe_nachname . "_" . $safe_title . ".pdf";
 
     // Textbereinigung
     $clean_text = function ($val) {

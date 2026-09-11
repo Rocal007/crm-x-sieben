@@ -801,6 +801,7 @@ class CRM_Model
      */
     private function load_icons()
     {
+        $assets_dir = get_template_directory() . '/inc/core/crm/assets/';
         $assets_url = get_template_directory_uri() . '/inc/core/crm/assets/';
         $icons = [
             'web_icon'       => ['file' => 'kontakt.png', 'width' => '25px'],
@@ -829,20 +830,34 @@ class CRM_Model
         foreach ($icons as $prop => $config) {
             $width_attr = !empty($config['width']) ? " width=\"{$config['width']}\"" : '';
             $style_attr = isset($config['style']) ? " style=\"{$config['style']}\"" : '';
+            // For TCPDF: use local filesystem path if file exists to prevent slow/blocked HTTP loopback requests
+            $img_src = (file_exists($assets_dir . $config['file'])) ? ($assets_dir . $config['file']) : ($assets_url . $config['file']);
             $this->$prop = sprintf(
-                '<img%s%s src="%s%s">',
+                '<img%s%s src="%s">',
                 $width_attr,
                 $style_attr,
-                $assets_url,
-                $config['file']
+                $img_src
             );
         }
 
         // Falls ein benutzerdefiniertes Logo in den CRM-Einstellungen hinterlegt ist, dieses für das Hauptlogo verwenden
         if (!empty($this->company_logo_url)) {
+            $logo_src = $this->company_logo_url;
+            // Resolve local filesystem path if available
+            $upload_dir = wp_upload_dir();
+            $base_url   = $upload_dir['baseurl'] ?? '';
+            $base_dir   = $upload_dir['basedir'] ?? '';
+            if (!empty($base_url) && !empty($base_dir) && strpos($logo_src, $base_url) !== false) {
+                $local_candidate = str_replace($base_url, $base_dir, $logo_src);
+                if (file_exists($local_candidate)) {
+                    $logo_src = $local_candidate;
+                }
+            } elseif (file_exists($assets_dir . basename($logo_src))) {
+                $logo_src = $assets_dir . basename($logo_src);
+            }
             $this->xsieben_logo = sprintf(
                 '<img width="200px" style="max-width:200px; height:auto;" src="%s">',
-                esc_url($this->company_logo_url)
+                esc_attr($logo_src)
             );
         }
         $this->company_logo = $this->xsieben_logo;
@@ -1102,7 +1117,7 @@ class CRM_Model
      */
     private function get_zertifizierungen_images_html()
     {
-        $zert_images_url = [];
+        $zert_images_src = [];
         $ca_meta = get_post_meta($this->post_id, "zertifikate", true);
         if (!empty($ca_meta) && is_array($ca_meta)) {
             $query = new WP_Query([
@@ -1114,9 +1129,15 @@ class CRM_Model
                 while ($query->have_posts()) {
                     $query->the_post();
                     if (get_the_ID() != 5793) {
-                        $image_url = get_the_post_thumbnail_url(get_the_ID(), 'full');
-                        if ($image_url) {
-                            $zert_images_url[] = $image_url;
+                        $thumb_id = get_post_thumbnail_id(get_the_ID());
+                        $local_file = $thumb_id ? get_attached_file($thumb_id) : '';
+                        if ($local_file && file_exists($local_file)) {
+                            $zert_images_src[] = $local_file;
+                        } else {
+                            $image_url = get_the_post_thumbnail_url(get_the_ID(), 'full');
+                            if ($image_url) {
+                                $zert_images_src[] = $image_url;
+                            }
                         }
                     }
                 }
@@ -1124,10 +1145,10 @@ class CRM_Model
             }
         }
         $zert_images = '<table cellpadding="0" cellspacing="5" border="0"><tr>';
-        foreach ($zert_images_url as $image) {
+        foreach ($zert_images_src as $image) {
             $zert_images .= '
             <td cellpadding="6" style="width:58px; height:34px; border: 1px solid #cbd5e1; text-align: center; vertical-align: middle;">
-                <img src="' . esc_url($image) . '" style="max-width: 100%; max-height: 24px;">
+                <img src="' . esc_attr($image) . '" style="max-width: 100%; max-height: 24px;">
             </td>';
         }
         $zert_images .= '</tr></table>';

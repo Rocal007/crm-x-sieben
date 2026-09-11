@@ -104,7 +104,7 @@ function xsieben_invoice_pdf($entry_id, $course_id, $output_to_browser = true, $
     $logo_file  = file_exists($assets_dir . 'xsieben_logo.png') ? ($assets_dir . 'xsieben_logo.png') : ($assets_dir . 'logo_x-sieben.png');
     $logo_html  = '';
     if (file_exists($logo_file)) {
-        $logo_html = '<img src="' . esc_url(get_template_directory_uri() . '/inc/core/crm/assets/' . basename($logo_file)) . '" width="170">';
+        $logo_html = '<img src="' . esc_attr($logo_file) . '" width="170">';
     } elseif (!empty($course->xsieben_logo)) {
         $logo_html = $course->xsieben_logo;
     }

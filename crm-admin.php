@@ -19,7 +19,7 @@
 
 // --- Core Setup & Helpers ---
 if (!defined('CRM_VERSION')) {
-    define('CRM_VERSION', '2.18.1');
+    define('CRM_VERSION', '2.18.2');
 }
 
 require_once __DIR__ . '/helpers/crm-cache.php';
