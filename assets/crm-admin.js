@@ -1069,11 +1069,11 @@ jQuery(document).ready(function ($) {
         const $feedback = $('.crm-diplom-success-feedback');
 
         $.ajax({
-            url: crmData.ajaxUrl,
+            url: ajaxUrl,
             type: 'POST',
             data: {
                 action: 'crm_update_diplom_success',
-                nonce: crmData.nonce,
+                nonce: nonce,
                 entry_id: entryId,
                 course_id: courseId,
                 success_val: successVal
@@ -2497,11 +2497,11 @@ jQuery(document).ready(function ($) {
         $btn.prop('disabled', true).html('<span class="dashicons dashicons-update spin"></span> Wird angewendet...');
 
         jQuery.ajax({
-            url: crmData.ajaxUrl,
+            url: (typeof crmData !== 'undefined' && crmData.ajaxUrl) ? crmData.ajaxUrl : ((typeof ajaxurl !== 'undefined') ? ajaxurl : '/wp-admin/admin-ajax.php'),
             type: 'POST',
             data: {
                 action: 'crm_save_pdf_section_order',
-                nonce: crmData.nonce,
+                nonce: (typeof crmData !== 'undefined' && crmData.nonce) ? crmData.nonce : '',
                 doc_type: docType,
                 entry_id: entryId,
                 course_id: courseId,
@@ -2587,11 +2587,11 @@ jQuery(document).ready(function ($) {
         $btn.prop('disabled', true);
 
         jQuery.ajax({
-            url: crmData.ajaxUrl,
+            url: (typeof crmData !== 'undefined' && crmData.ajaxUrl) ? crmData.ajaxUrl : ((typeof ajaxurl !== 'undefined') ? ajaxurl : '/wp-admin/admin-ajax.php'),
             type: 'POST',
             data: {
                 action: 'crm_reset_pdf_section_order',
-                nonce: crmData.nonce,
+                nonce: (typeof crmData !== 'undefined' && crmData.nonce) ? crmData.nonce : '',
                 doc_type: docType,
                 entry_id: entryId,
                 course_id: courseId,
