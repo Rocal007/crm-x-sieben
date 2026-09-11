@@ -2637,13 +2637,25 @@ function render_crm_settings_page()
                             subContent = sub.attr('data-content') || '';
                         }
 
-                        const $inputTitle = sub.find('.crm-sub-input-title');
-                        const $inputContent = sub.find('.crm-sub-input-content');
-                        if ($inputTitle.length && $inputTitle.val().trim()) {
-                            subTitle = $inputTitle.val().trim();
+                        // If user edited in drawer without clicking 'Übernehmen'
+                        const $drawer = sub.find('> .crm-sub-edit-drawer');
+                        if ($drawer.length && $drawer.is(':visible')) {
+                            const $inputTitle = $drawer.find('.crm-sub-input-title');
+                            const $inputContent = $drawer.find('.crm-sub-input-content');
+                            if ($inputTitle.length && $inputTitle.val().trim()) {
+                                subTitle = $inputTitle.val().trim();
+                            }
+                            if ($inputContent.length) {
+                                subContent = $inputContent.val();
+                            }
                         }
-                        if ($inputContent.length) {
-                            subContent = $inputContent.val();
+
+                        // Standard-Unterabschnitte bereinigen
+                        const defaultContent = sub.data('default-content') || sub.attr('data-default-content') || '';
+                        if (!subCustom) {
+                            if (typeof subContent === 'string' && (subContent.trim() === defaultContent.trim() || subContent.trim() === '{standard}')) {
+                                subContent = '';
+                            }
                         }
 
                         if (subKey) {

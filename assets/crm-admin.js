@@ -1251,13 +1251,24 @@ jQuery(document).ready(function ($) {
                 }
 
                 // If user edited in drawer without clicking 'Übernehmen'
-                const $inputTitle = $sub.find('.crm-sub-input-title');
-                const $inputContent = $sub.find('.crm-sub-input-content');
-                if ($inputTitle.length && $inputTitle.val().trim()) {
-                    subTitle = $inputTitle.val().trim();
+                const $drawer = $sub.find('> .crm-sub-edit-drawer');
+                if ($drawer.length && $drawer.is(':visible')) {
+                    const $inputTitle = $drawer.find('.crm-sub-input-title');
+                    const $inputContent = $drawer.find('.crm-sub-input-content');
+                    if ($inputTitle.length && $inputTitle.val().trim()) {
+                        subTitle = $inputTitle.val().trim();
+                    }
+                    if ($inputContent.length) {
+                        subContent = $inputContent.val();
+                    }
                 }
-                if ($inputContent.length) {
-                    subContent = $inputContent.val();
+
+                // Standard-Unterabschnitte bereinigen: Wenn Inhalt leer, {standard} oder Standard-Text ist, als leer ('') speichern
+                const defaultContent = $sub.data('default-content') || $sub.attr('data-default-content') || '';
+                if (!subCustom) {
+                    if (typeof subContent === 'string' && (subContent.trim() === defaultContent.trim() || subContent.trim() === '{standard}')) {
+                        subContent = '';
+                    }
                 }
 
                 if (subKey) {
@@ -2014,13 +2025,14 @@ jQuery(document).ready(function ($) {
         // Show badge "Angepasst" if custom content is active
         const defaultContent = $sub.data('default-content') || $sub.attr('data-default-content') || '';
         const isCustomSub = ($sub.data('custom') == 1 || $sub.attr('data-custom') === '1');
-        const hasCustomContent = (newContent.trim().length > 0 && newContent !== defaultContent);
+        const hasCustomContent = (newContent.trim().length > 0 && newContent.trim() !== defaultContent.trim() && newContent.trim() !== '{standard}');
         const $badge = $sub.find('.crm-sub-custom-badge');
 
         if (hasCustomContent || (isCustomSub && newContent.trim().length > 0)) {
             $badge.show();
         } else {
             $badge.hide();
+            $sub.data('content', '').attr('data-content', '');
         }
 
         $drawer.slideUp(160);
@@ -2040,7 +2052,6 @@ jQuery(document).ready(function ($) {
         const $sub = jQuery(this).closest('.crm-pdf-subsection-item');
         const $drawer = $sub.find('> .crm-sub-edit-drawer');
         const origTitle = $sub.data('orig-title') || $sub.attr('data-orig-title') || '';
-        const defaultContent = $sub.data('default-content') || $sub.attr('data-default-content') || '';
 
         if (origTitle) {
             $sub.data('title', origTitle).attr('data-title', origTitle);
@@ -2049,7 +2060,7 @@ jQuery(document).ready(function ($) {
         }
 
         $sub.data('content', '').attr('data-content', '');
-        $drawer.find('.crm-sub-input-content').val(defaultContent);
+        $drawer.find('.crm-sub-input-content').val('');
         $sub.find('.crm-sub-custom-badge').hide();
 
         $drawer.slideUp(160);

@@ -1064,6 +1064,117 @@ function crm_replace_pdf_placeholders(string $content, $course = null): string
 }
 
 /**
+ * Prüft, ob der übergebene Inhalt ein unveränderter Standard- oder Legacy-Platzhaltertext ist,
+ * der fälschlicherweise als benutzerdefinierter Inhalt in der Datenbank gespeichert wurde.
+ *
+ * @param string $sec_key
+ * @param string $sub_key
+ * @param string $content
+ * @return bool
+ */
+function crm_is_legacy_default_pdf_content(string $sec_key, string $sub_key, string $content): bool
+{
+    $norm = preg_replace('/\s+/', ' ', trim($content));
+    if ($norm === '' || $norm === '{standard}') {
+        return true;
+    }
+
+    $legacy_map = [
+        'deckblatt' => [
+            'empfaenger' => [
+                '{anrede} {vorname} {nachname} Angebotsnummer: {angebotsnummer} Datum: {datum} Gültig bis: {expire}',
+                'Angebotsnummer: {angebotsnummer}',
+            ],
+            'titel' => [
+                'Angebot: {kurstitel}',
+            ],
+            'anrede_text' => [
+                'Sehr geehrte/r Frau/Herr {nachname}, Danke für Ihr Interesse und willkommen bei der beliebten X SIEBEN Veranstaltung {kurstitel} mit lernförderndem Kleingruppen-Unterricht. Diese Veranstaltung fokussiert auf {zielgruppe}.',
+                'Danke für Ihr Interesse und willkommen bei der beliebten X SIEBEN Veranstaltung',
+            ],
+            'gruss' => [
+                'Ich freue mich über Ihre Rückmeldung / Buchung. Mit freundlichen Grüßen,',
+                'Ich freue mich über Ihre Rückmeldung / Buchung.',
+            ],
+            'ps' => [
+                'PS: Profitieren Sie von unseren flexiblen Teilzahlungsmöglichkeiten und ProvenExpert-Top-Bewertungen.',
+            ],
+            'hinweis_nachstehend' => [
+                'Nachstehend: Veranstaltungsinformationen | Anhang 1: Details zu den Inhalten der Veranstaltung | Anhang 2: Exklusive Zusatzleistungen',
+            ],
+        ],
+        'veranstaltung' => [
+            'titel' => [
+                'Veranstaltungsinformationen: {kurstitel_short}',
+            ],
+            'zeitraum' => [
+                'Vom {startdatum} bis einschließlich {enddatum}',
+            ],
+            'lehreinheiten' => [
+                'Diese Veranstaltung beinhaltet {le} Lehreinheiten (LE, 1 LE = 45min).',
+            ],
+            'ort_durchfuehrung' => [
+                'ORT: X SIEBEN Wirtschaftstraining, Rochusgasse 6 in 1030 Wien Durchführung unserer Schulungen: Online Unterricht | vor Ort in unseren Veranstaltungsräumen | Blended Learning',
+            ],
+        ],
+        'abschluss' => [
+            'titel' => [
+                'Ihr persönlicher Abschluss: {kurstitel_short}',
+            ],
+            'beratung' => [
+                'Fachberatung & Kontakt: office@x-sieben.at | Tel: 0800 700 170',
+            ],
+        ],
+        'kosten' => [
+            'titel' => [
+                'Kursgebühr inkl. optionale Zertifizierungen',
+            ],
+            'gueltigkeit' => [
+                'ANGEBOT GÜLTIG bis max. Gruppengrösse erreicht bzw.: {expire}',
+            ],
+            'bankverbindung' => [
+                'Bankverbindung: Erste Bank | IBAN: AT29 3293 7001 0012 5260 | BIC: RLNWATWWWRN',
+            ],
+        ],
+        'anmeldung' => [
+            'titel' => [
+                'ANMELDUNG: {kurstitel}',
+            ],
+            'agb' => [
+                'Bitte beachten Sie unsere Allgemeinen Geschäftsbedingungen (AGB). Mit Ihrer Buchung akzeptieren Sie unsere Richtlinien.',
+            ],
+            'anhang_hinweise' => [
+                'Anhang 1: Details zu den Inhalten der Veranstaltung Anhang 2: Exklusive Zusatzleistungen',
+            ],
+        ],
+        'inhalte' => [
+            'titel' => [
+                'Details zu den Inhalten (Anhang 1)',
+            ],
+        ],
+        'zusatzleistungen' => [
+            'titel' => [
+                'Exklusive Zusatzleistungen (Anhang 2)',
+            ],
+            'garantien' => [
+                '3-fach sicher mit unserer Durchführungsgarantie, Zufriedenheitsgarantie und Zertifizierungsbegleitung.',
+            ],
+        ],
+    ];
+
+    if (isset($legacy_map[$sec_key][$sub_key])) {
+        foreach ($legacy_map[$sec_key][$sub_key] as $snippet) {
+            $norm_snippet = preg_replace('/\s+/', ' ', trim($snippet));
+            if ($norm === $norm_snippet || (strlen($norm_snippet) > 20 && strpos($norm, $norm_snippet) !== false)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
  * Holt die geordnete Liste aller Abschnitte inkl. Unterabschnitten für einen Dokumententyp.
  *
  * @param string $doc_type 'angebot', 'kb', 'tb'
@@ -1128,6 +1239,18 @@ function crm_get_pdf_section_order(string $doc_type, $entry_id = null): array
 
                         if (isset($def['subsections'][$s_key])) {
                             $sub_def = $def['subsections'][$s_key];
+                            $raw_content = $sub['content'] ?? '';
+
+                            // AUTO-CLEANUP / HEALING FÜR BESTEHENDE DATEN:
+                            if (!$s_custom && !empty($raw_content)) {
+                                $def_content = $sub_def['default_content'] ?? '';
+                                $norm_raw = preg_replace('/\s+/', ' ', trim($raw_content));
+                                $norm_def = preg_replace('/\s+/', ' ', trim($def_content));
+                                if ($norm_raw === $norm_def || $norm_raw === '{standard}' || crm_is_legacy_default_pdf_content($key, $s_key, $norm_raw)) {
+                                    $raw_content = '';
+                                }
+                            }
+
                             $subsections[] = [
                                 'key'             => $s_key,
                                 'title'           => $sub['title'] ?? $sub_def['title'],
@@ -1135,7 +1258,7 @@ function crm_get_pdf_section_order(string $doc_type, $entry_id = null): array
                                 'desc'            => $sub_def['desc'] ?? '',
                                 'enabled'         => $s_enabled,
                                 'is_custom'       => false,
-                                'content'         => $sub['content'] ?? '',
+                                'content'         => $raw_content,
                                 'default_content' => $sub_def['default_content'] ?? '',
                             ];
                             $seen_subs[$s_key] = true;
@@ -1438,6 +1561,16 @@ function crm_save_pdf_section_order(string $doc_type, array $ordered_sections, $
                 $sub_content = wp_kses_post(wp_unslash($sub['content'] ?? ''));
 
                 if (!empty($sub_key) && !isset($seen_subs[$sub_key])) {
+                    // Standard-Unterabschnitte bereinigen: Wenn Content leer, {standard} oder dem Standard-Snippet entspricht, als leer ('') speichern!
+                    if (!$sub_custom && isset($definitions[$key]['subsections'][$sub_key])) {
+                        $def_sub_content = $definitions[$key]['subsections'][$sub_key]['default_content'] ?? '';
+                        $norm_sub = preg_replace('/\s+/', ' ', trim($sub_content));
+                        $norm_def = preg_replace('/\s+/', ' ', trim($def_sub_content));
+                        if ($norm_sub === $norm_def || $norm_sub === '{standard}' || crm_is_legacy_default_pdf_content($key, $sub_key, $norm_sub)) {
+                            $sub_content = '';
+                        }
+                    }
+
                     $subsections[] = [
                         'key'       => $sub_key,
                         'enabled'   => (bool)$sub_enabled,
@@ -1938,7 +2071,7 @@ function crm_render_pdf_sections_manager(string $doc_type = 'angebot', $entry_id
                                                     </span>
                                                 <?php endif; ?>
                                             </div>
-                                            <textarea class="crm-sub-input-content" rows="4" style="width:100%; font-size:11.5px; font-family:monospace; line-height:1.4;" placeholder="<?php esc_attr_e('Freitext oder HTML für diesen Unterabschnitt eingeben...', 'custom-crm'); ?>"><?php echo esc_textarea(!empty($sub['content']) ? $sub['content'] : ($sub['default_content'] ?? '')); ?></textarea>
+                                            <textarea class="crm-sub-input-content" rows="4" style="width:100%; font-size:11.5px; font-family:monospace; line-height:1.4;" placeholder="<?php esc_attr_e('Freitext oder HTML für diesen Unterabschnitt eingeben (leer lassen für Standard-Layout)...', 'custom-crm'); ?>"><?php echo esc_textarea(!empty($sub['content']) ? $sub['content'] : ''); ?></textarea>
                                         </div>
 
                                         <!-- Placeholder Chips -->

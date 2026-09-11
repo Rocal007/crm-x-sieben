@@ -614,15 +614,35 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
                             $sec_html .= '<div style="font-size:11pt; font-weight:bold; margin-top:10px; margin-bottom:4px; color:#0f172a;">' . esc_html($sub['title']) . '</div>';
                         }
                         if (!empty($sub['content'])) {
-                            $sec_html .= '<div style="font-size:10pt; line-height:1.6;">' . crm_replace_pdf_placeholders($sub['content'], $course) . '</div>';
+                            $custom_sub_text = crm_replace_pdf_placeholders($sub['content'], $course);
+                            if (!preg_match('/<(?:table|div|p|ul|ol|h[1-6]|br)\b/i', $custom_sub_text)) {
+                                $custom_sub_text = nl2br($custom_sub_text);
+                            }
+                            $sec_html .= '<div style="font-size:10pt; line-height:1.6; margin-bottom:8px;">' . $custom_sub_text . '</div>';
                         }
                     } elseif (isset($subsections_generators[$sec_key][$sub_key])) {
                         $default_sub_html = $subsections_generators[$sec_key][$sub_key];
-                        if (!empty($sub['content'])) {
-                            if (strpos($sub['content'], '{standard}') !== false) {
-                                $custom_sub_html = str_replace('{standard}', $default_sub_html, $sub['content']);
+                        $custom_content   = trim($sub['content'] ?? '');
+
+                        $is_default_snippet = false;
+                        if (!empty($custom_content)) {
+                            if ($custom_content === '{standard}') {
+                                $is_default_snippet = true;
+                            } elseif (function_exists('crm_is_legacy_default_pdf_content') && crm_is_legacy_default_pdf_content($sec_key, $sub_key, $custom_content)) {
+                                $is_default_snippet = true;
+                            }
+                        }
+
+                        if (!empty($custom_content) && !$is_default_snippet) {
+                            if (strpos($custom_content, '{standard}') !== false) {
+                                $custom_sub_html = str_replace('{standard}', $default_sub_html, $custom_content);
                             } else {
-                                $custom_sub_html = $sub['content'];
+                                $custom_sub_html = $custom_content;
+                                if (!preg_match('/<(?:table|div|p|ul|ol|h[1-6]|br)\b/i', $custom_sub_html)) {
+                                    $custom_sub_html = '<div style="font-size:10pt; line-height:1.5; margin-bottom:8px;">' . nl2br($custom_sub_html) . '</div>';
+                                } else {
+                                    $custom_sub_html = '<div style="margin-bottom:6px;">' . $custom_sub_html . '</div>';
+                                }
                             }
                             $sec_html .= crm_replace_pdf_placeholders($custom_sub_html, $course);
                         } else {
