@@ -1305,4 +1305,728 @@
     font-size: 13px !important;
     text-transform: uppercase;
 }
+
+/* ==========================================================================
+   PDF Drag & Drop Section Manager Styles
+   ========================================================================== */
+.crm-pdf-sections-manager {
+    position: relative;
+    user-select: none;
+}
+
+.crm-sortable-sections {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.crm-pdf-section-item {
+    display: block;
+    padding: 0;
+    margin-bottom: 9px;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.crm-pdf-section-item:hover {
+    border-color: #94a3b8;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.06);
+}
+
+.crm-pdf-section-item.is-disabled {
+    opacity: 0.55;
+    background: #f1f5f9;
+}
+
+.crm-pdf-section-item.is-disabled .crm-section-title {
+    color: #64748b !important;
+    text-decoration: line-through;
+}
+
+.crm-section-drag-handle {
+    color: #94a3b8;
+    cursor: grab;
+    font-size: 16px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+
+.crm-section-header-row:hover .crm-section-drag-handle {
+    color: #475569;
+    background: #e2e8f0;
+}
+
+.crm-section-sortable-placeholder {
+    height: 48px;
+    background: #eff6ff;
+    border: 2px dashed #3b82f6;
+    border-radius: 6px;
+    margin-bottom: 7px;
+}
+
+.crm-field-sortable-placeholder {
+    height: 60px;
+    background: #f0fdf4;
+    border: 2px dashed #22c55e;
+    border-radius: 8px;
+    margin-bottom: 12px;
+}
+
+.crm-field-drag-handle {
+    cursor: grab;
+    color: #94a3b8;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.crm-field-drag-handle:hover {
+    color: #334155;
+    background: #e2e8f0;
+}
+
+/* Sidebar variant in entry preview */
+.crm-pdf-sections-preview-box {
+    margin-top: 14px;
+    padding: 12px;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+}
+
+.crm-sections-sidebar .crm-pdf-section-item {
+    margin-bottom: 6px;
+}
+
+.crm-sections-sidebar .crm-section-header-row {
+    padding: 7px 9px;
+    gap: 7px;
+}
+
+.crm-sections-sidebar .crm-section-title {
+    font-size: 12px !important;
+}
+
+.crm-move-up-btn,
+.crm-move-down-btn {
+    opacity: 0.6;
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.crm-move-up-btn:hover,
+.crm-move-down-btn:hover {
+    opacity: 1;
+    color: #0f172a !important;
+}
+
+/* Hierarchical Subsections & Accordion Styles */
+.crm-section-header-row:hover {
+    background-color: #f8fafc;
+}
+
+.crm-section-chevron {
+    transition: transform 0.2s ease;
+    cursor: pointer;
+}
+
+.crm-section-chevron.is-open {
+    transform: rotate(90deg);
+}
+
+.crm-subs-counter-badge {
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.crm-subs-counter-badge:hover {
+    background: #e2e8f0 !important;
+    border-color: #cbd5e1 !important;
+}
+
+.crm-sub-sortable-placeholder {
+    height: 34px;
+    background: #f1f5f9;
+    border: 1px dashed #94a3b8;
+    border-radius: 4px;
+    margin-bottom: 5px;
+}
+
+.crm-pdf-subsection-item:hover {
+    border-color: #94a3b8 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.crm-sub-drag-handle {
+    cursor: grab;
+    padding: 1px 3px;
+    border-radius: 3px;
+}
+
+.crm-sub-drag-handle:hover {
+    background: #e2e8f0;
+    color: #334155 !important;
+}
+
+.crm-sub-move-up,
+.crm-sub-move-down {
+    opacity: 0.55;
+    transition: opacity 0.15s ease;
+}
+
+.crm-sub-move-up:hover,
+.crm-sub-move-down:hover {
+    opacity: 1;
+    color: #0f172a !important;
+}
+
+.crm-delete-section-btn:hover,
+.crm-delete-sub-btn:hover {
+    color: #b91c1c !important;
+    transform: scale(1.1);
+}
+
+.crm-add-section-drawer,
+.crm-add-sub-drawer {
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.crm-pdf-subsection-item {
+    transition: all 0.15s ease, background-color 0.4s ease;
+}
+
+.crm-sub-row {
+    user-select: none;
+}
+
+.crm-edit-sub-btn {
+    transition: all 0.12s ease;
+}
+
+.crm-edit-sub-btn:hover {
+    background: #dcfce7 !important;
+    border-color: #86efac !important;
+    color: #166534 !important;
+}
+
+.crm-chip-btn {
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.12s ease;
+}
+
+.crm-chip-btn:hover {
+    background: #bae6fd !important;
+    border-color: #7dd3fc !important;
+    color: #0369a1 !important;
+    transform: translateY(-1px);
+}
+
+.crm-sub-custom-badge {
+    animation: fadeInBadge 0.2s ease;
+}
+
+@keyframes fadeInBadge {
+    from { opacity: 0; transform: scale(0.9); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.crm-sub-edit-drawer {
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.03);
+}
+
+.crm-sub-input-content:focus,
+.crm-sub-input-title:focus {
+    border-color: #007C90 !important;
+    box-shadow: 0 0 0 1px #007C90 !important;
+    outline: none !important;
+}
+
+/* ==========================================
+   E-MAIL SECTION INLINE EDITING STYLES
+   ========================================== */
+.crm-email-section-item {
+    transition: all 0.15s ease, background-color 0.4s ease;
+}
+
+.crm-email-sec-header-row {
+    user-select: none;
+}
+
+.crm-edit-email-sec-btn {
+    transition: all 0.12s ease;
+}
+
+.crm-edit-email-sec-btn:hover {
+    background: #e0f2fe !important;
+    border-color: #7dd3fc !important;
+    color: #0369a1 !important;
+}
+
+.crm-email-sec-custom-badge {
+    animation: fadeInBadge 0.2s ease;
+}
+
+.crm-email-sec-drawer {
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.03);
+}
+
+.crm-email-sec-input-content:focus,
+.crm-email-sec-input-title:focus,
+.crm-email-sec-input-badge:focus {
+    border-color: #0284c7 !important;
+    box-shadow: 0 0 0 1px #0284c7 !important;
+    outline: none !important;
+}
+
+.crm-email-sec-apply-btn:hover {
+    background: #0369a1 !important;
+    border-color: #0369a1 !important;
+}
+
+.crm-email-sec-sortable-placeholder {
+    height: 48px;
+    background: #f0f9ff;
+    border: 2px dashed #7dd3fc;
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+/* ==========================================
+   PDF HEADER & FOOTER CONTROLS & DRAWER
+   ========================================== */
+.crm-pdf-master-hf-box {
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.crm-pdf-master-hf-box:hover {
+    box-shadow: 0 3px 8px rgba(124, 58, 237, 0.08);
+}
+
+.crm-toggle-hf-btn {
+    transition: all 0.15s ease;
+    outline: none !important;
+}
+
+.crm-toggle-hf-btn:hover {
+    background: #ede9fe !important;
+    border-color: #c4b5fd !important;
+    color: #5b21b6 !important;
+    transform: translateY(-1px);
+}
+
+.crm-toggle-hf-btn:active {
+    transform: translateY(0);
+}
+
+.crm-hf-drawer {
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
+    animation: crmDrawerSlide 0.18s ease;
+}
+
+@keyframes crmDrawerSlide {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.crm-hf-drawer select:focus,
+.crm-hf-drawer textarea:focus,
+.crm-hf-drawer input[type="text"]:focus {
+    border-color: #7c3aed !important;
+    box-shadow: 0 0 0 1px #7c3aed !important;
+    outline: none !important;
+}
+
+.crm-hf-header-checkboxes label:hover,
+.crm-hf-footer-checkboxes label:hover {
+    color: #0f172a;
+}
+
+@media screen and (max-width: 782px) {
+    .crm-hf-drawer > div:last-child {
+        grid-template-columns: 1fr !important;
+    }
+    .crm-pdf-master-hf-box > div:last-of-type {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* ===================================================================
+   E-Mail Sections & Live-Preview Manager Styling
+   =================================================================== */
+.crm-email-sections-box {
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+
+.crm-email-section-item {
+    transition: all 0.15s ease;
+}
+
+.crm-email-section-item:hover {
+    box-shadow: 0 3px 8px rgba(0,0,0,0.08) !important;
+    border-color: #94a3b8 !important;
+}
+
+.crm-email-section-item.is-disabled {
+    opacity: 0.55;
+    background: #f8fafc !important;
+}
+
+.crm-email-sec-sortable-placeholder {
+    height: 48px;
+    background: #f0fdf4;
+    border: 2px dashed #0284c7;
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.crm-email-preview-switch-btn {
+    border-color: #cbd5e1 !important;
+    background: #ffffff !important;
+    color: #475569 !important;
+    font-size: 11.5px !important;
+    height: 28px !important;
+    line-height: 26px !important;
+    padding: 0 8px !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+    transition: all 0.12s ease !important;
+}
+
+.crm-email-preview-switch-btn:hover {
+    color: #0284c7 !important;
+    border-color: #0284c7 !important;
+}
+
+.crm-email-preview-switch-btn.active {
+    background: #0284c7 !important;
+    border-color: #0284c7 !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+}
+
+.crm-email-sec-pill.active {
+    border-color: #0284c7 !important;
+    color: #0369a1 !important;
+    font-weight: 600 !important;
+    background: #f0f9ff !important;
+}
+
+.crm-insert-chip-to-editor:hover {
+    background: #0284c7 !important;
+    color: #ffffff !important;
+    border-color: #0284c7 !important;
+}
+
+.crm-preview-this-email:hover {
+    background: #0284c7 !important;
+    color: #ffffff !important;
+    border-color: #0284c7 !important;
+}
+
+.crm-email-insert-chip:hover {
+    background: #e0f2fe !important;
+    color: #0284c7 !important;
+    border-color: #0284c7 !important;
+}
+
+/* ===================================================================
+   E-Mail Editor: Full Emails vs. Components Grouping & Filter Pills
+   =================================================================== */
+.crm-email-field-filter-btn {
+    font-size: 12px !important;
+    height: 30px !important;
+    line-height: 28px !important;
+    border-radius: 15px !important;
+    padding: 0 14px !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease !important;
+}
+
+.crm-email-field-filter-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08);
+}
+
+.crm-type-badge-full {
+    background: #e0f2fe;
+    color: #0284c7;
+    border: 1px solid #bae6fd;
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.crm-type-badge-comp {
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.crm-comp-code-pill {
+    background: #f8fafc;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    font-family: monospace;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 4px;
+    margin-left: 4px;
+}
+
+.crm-component-helper-box {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.crm-copy-chip-btn {
+    background: #ffffff;
+    border: 1px solid #86efac;
+    color: #15803d;
+    font-family: monospace;
+    font-weight: 700;
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.15s ease;
+}
+
+.crm-copy-chip-btn:hover {
+    background: #dcfce7 !important;
+    border-color: #4ade80 !important;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.15);
+}
+
+/* ===================================================================
+   CRM PDF-Anhänge Auswahl & Beilagen Manager
+   =================================================================== */
+.crm-attachments-box {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0 20px 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.crm-attachments-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.crm-attachments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.crm-attachment-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 6px;
+    padding: 9px 14px;
+    transition: all 0.18s ease;
+}
+
+.crm-attachment-card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.crm-attachment-card.is-attached {
+    border-color: #0f766e !important;
+    background: #f0fdf4 !important;
+    box-shadow: 0 1px 3px rgba(15, 118, 110, 0.1);
+}
+
+.crm-attachment-card.is-custom {
+    border-left: 3px solid #4f46e5 !important;
+}
+
+.crm-attachment-card.is-loading {
+    opacity: 0.7;
+    pointer-events: none;
+    background: #f0f9ff !important;
+    border-color: #38bdf8 !important;
+}
+
+.crm-att-preview-btn {
+    color: #0f766e !important;
+    border-color: #99f6e4 !important;
+    background: #ffffff !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    transition: all 0.15s ease !important;
+}
+
+.crm-att-preview-btn:hover {
+    background: #0f766e !important;
+    color: #ffffff !important;
+    border-color: #0f766e !important;
+    transform: translateY(-1px);
+}
+
+.crm-remove-custom-att-btn {
+    color: #dc2626 !important;
+    border-color: #fecaca !important;
+    background: #ffffff !important;
+    transition: all 0.15s ease !important;
+}
+
+.crm-remove-custom-att-btn:hover {
+    background: #dc2626 !important;
+    color: #ffffff !important;
+    border-color: #dc2626 !important;
+}
+
+.crm-add-custom-attachment-btn:hover {
+    background: #0284c7 !important;
+    color: #ffffff !important;
+    border-color: #0284c7 !important;
+}
+
+.crm-sidebar-download-btn {
+    border-color: #cbd5e1 !important;
+    color: #0f172a !important;
+    font-weight: 600 !important;
+    background: #ffffff !important;
+    transition: all 0.15s ease !important;
+}
+
+.crm-sidebar-download-btn:hover {
+    background: #f1f5f9 !important;
+    border-color: #0f766e !important;
+    color: #0f766e !important;
+}
+
+/* ==========================================================================
+   CRM E-Mail Subject Editor & Mailer Subject Box
+   ========================================================================== */
+.crm-email-subject-editor-box,
+.crm-mailer-subject-box {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-left: 4px solid #0284c7;
+    border-radius: 6px;
+    padding: 12px 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.crm-email-subject-input,
+#x_sieben_subject {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #0f172a;
+    transition: all 0.15s ease;
+}
+
+.crm-email-subject-input:focus,
+#x_sieben_subject:focus {
+    background: #ffffff;
+    border-color: #0284c7;
+    box-shadow: 0 0 0 1px #0284c7;
+    outline: 2px solid transparent;
+}
+
+.crm-subject-chips-bar {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.crm-insert-subject-chip,
+.crm-insert-mailer-chip {
+    background: #f1f5f9 !important;
+    border-color: #cbd5e1 !important;
+    color: #0369a1 !important;
+    font-size: 11px !important;
+    font-family: monospace, monospace !important;
+    font-weight: 600 !important;
+    padding: 1px 8px !important;
+    height: 24px !important;
+    line-height: 22px !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease !important;
+}
+
+.crm-insert-subject-chip:hover,
+.crm-insert-mailer-chip:hover {
+    background: #e0f2fe !important;
+    border-color: #38bdf8 !important;
+    color: #0284c7 !important;
+    transform: translateY(-1px);
+}
+
+.crm-btn-save-subject {
+    background: #0284c7 !important;
+    border-color: #0284c7 !important;
+    color: #ffffff !important;
+    transition: all 0.15s ease !important;
+}
+
+.crm-btn-save-subject:hover {
+    background: #0369a1 !important;
+    border-color: #0369a1 !important;
+    color: #ffffff !important;
+}
+
+.crm-btn-reset-subject:hover {
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+}
+
+
+
+
 

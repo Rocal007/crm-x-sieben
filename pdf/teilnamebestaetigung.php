@@ -1,74 +1,80 @@
 <?php
-function xsieben_teilnahmebestaetigung_pdf($entry_id, $course_id, $output_to_browser = true)
+function xsieben_teilnahmebestaetigung_pdf($entry_id, $course_id, $output_to_browser = true, $custom_sections = null)
 {
-    // Lade Kurs- und Adressdaten
+    // Model laden
     $course = new CRM_Model($course_id, $entry_id);
 
-    $pdfAuthor = 'X- Sieben Wirtschaftstraining GmbH';
+    $pdfAuthor = 'XSieben Wirtschaftstraining GmbH';
+    $pdf_name  = "Teilnahmebestaetigung_" . $course->vorname . "_" . $course->nachname . "_" . $course->titel_short . ".pdf";
 
-    // Sauberen Dateinamen erzeugen (nur erlaubte Zeichen)
-    $safe_title = preg_replace('/[^a-zA-Z0-9_\-äöüÄÖÜß]/u', '-', $course->titel_short);
-    $pdf_name = "TB_" . $safe_title . "_" . $course->vorname . "_" . $course->nachname . ".pdf";
-
+    // Textbereinigung
     $clean_text = function ($val) {
-        return trim(strip_tags($val ?? ''));
+        $decoded = html_entity_decode($val ?? '', ENT_QUOTES, 'UTF-8');
+        return trim(strip_tags($decoded));
     };
 
-    // Dynamische Texte aus dem CRM Model (PDF Editor) mit Default-Fallback
-    $default_tb_betrieb_name = !empty($course->company_name) ? $course->company_name : 'X SIEBEN Wirtschaftstraining GmbH';
-    $default_tb_betrieb_str  = !empty($course->company_street) ? $course->company_street : 'Kurzegasse 7';
-    $default_tb_betrieb_plz  = !empty($course->company_zip) ? $course->company_zip : '2493';
-    $default_tb_betrieb_ort  = !empty($course->company_city) ? $course->company_city : 'Lichtenwörth';
-    $default_tb_ort_str      = !empty($course->location_wien_street) ? ($course->location_wien_street . ' bzw. online') : 'Rochusgasse 6 bzw. online';
-    $default_tb_ort_plz      = !empty($course->location_wien_zip) ? $course->location_wien_zip : '1030';
-    $default_tb_ort_ort      = !empty($course->location_wien_city) ? $course->location_wien_city : 'Wien';
+    $clean_inline_html = function ($val) {
+        $val = preg_replace('/^\s*<p[^>]*>/iu', '', $val ?? '');
+        $val = preg_replace('/<\/p>\s*$/iu', '', $val);
+        return trim($val);
+    };
 
-    $tb_title        = $clean_text($course->get_crm_field_with_default('TB - Titel', 'Teilnahmebestätigung'));
-    $tb_einleitung   = $clean_text($course->get_crm_field_with_default('TB - Einleitung', 'Wir bestätigen, dass'));
-    $tb_betrieb_name = $clean_text($course->get_crm_field_with_default('TB - Betrieb Name', $default_tb_betrieb_name));
-    $tb_betrieb_str  = $clean_text($course->get_crm_field_with_default('TB - Betrieb Strasse', $default_tb_betrieb_str));
-    $tb_betrieb_plz  = $clean_text($course->get_crm_field_with_default('TB - Betrieb PLZ', $default_tb_betrieb_plz));
-    $tb_betrieb_ort  = $clean_text($course->get_crm_field_with_default('TB - Betrieb Ort', $default_tb_betrieb_ort));
-    $tb_ort_str      = $clean_text($course->get_crm_field_with_default('TB - Schulungsort Strasse', $default_tb_ort_str));
-    $tb_ort_plz      = $clean_text($course->get_crm_field_with_default('TB - Schulungsort PLZ', $default_tb_ort_plz));
-    $tb_ort_ort      = $clean_text($course->get_crm_field_with_default('TB - Schulungsort Ort', $default_tb_ort_ort));
+    // Daten aus CRM Model
+    $tn_name    = trim($course->titel . ' ' . $course->vorname . ' ' . $course->nachname);
+    $tn_svr     = $course->svr;
+    $tn_adresse = $course->street;
+    $tn_plz     = $course->zip_code;
+    $tn_ort     = $course->city;
 
-    $tb_teilnahme_raw = $course->get_crm_field_with_default('TB - Teilnahme Text', 'an der Ausbildung: <strong>"' . $course->title . '"</strong> (' . intval($course->anzahl_le) . ' LE) teilgenommen hat.');
-    $tb_teilnahme = preg_replace('/^\s*<p[^>]*>/iu', '', $tb_teilnahme_raw);
-    $tb_teilnahme = preg_replace('/<\/p>\s*$/iu', '', $tb_teilnahme);
-    $tb_teilnahme = trim($tb_teilnahme);
+    // Dynamische Felder aus dem CRM Model (PDF Editor) mit Fallbacks
+    $tb_title           = $clean_text($course->get_crm_field_with_default('TB - Titel', 'Teilnahmebestätigung'));
+    $tb_einleitung      = $clean_text($course->get_crm_field_with_default('TB - Einleitungstext', 'Wir bestätigen, dass'));
+    $tb_betrieb_name    = $clean_text($course->get_crm_field_with_default('TB - Betrieb Name', 'X SIEBEN Wirtschaftstraining GmbH'));
+    $tb_betrieb_str     = $clean_text($course->get_crm_field_with_default('TB - Betrieb Strasse', 'Kurzegasse 7'));
+    $tb_betrieb_plz     = $clean_text($course->get_crm_field_with_default('TB - Betrieb PLZ', '2493'));
+    $tb_betrieb_ort     = $clean_text($course->get_crm_field_with_default('TB - Betrieb Ort', 'Lichtenwörth'));
+    $tb_ort_str         = $clean_text($course->get_crm_field_with_default('TB - Schulungsort Strasse', 'Rochusgasse 6'));
+    $tb_ort_plz         = $clean_text($course->get_crm_field_with_default('TB - Schulungsort PLZ', '1030'));
+    $tb_ort_ort         = $clean_text($course->get_crm_field_with_default('TB - Schulungsort Ort', 'Wien'));
+    $tb_datum           = $clean_text($course->get_crm_field_with_default('TB - Datum Text', 'Wien, am ' . date('d.m.Y')));
+    $tb_unterschrift    = $clean_text($course->get_crm_field_with_default('TB - Unterschrift Zusatz', ''));
 
-    $tb_datum        = $clean_text($course->get_crm_field_with_default('TB - Datum', 'Datum: ' . date('d.m.Y')));
-    $tb_unterschrift = $clean_text($course->get_crm_field_with_default('TB - Unterschrift Label', 'Unterschrift:'));
+    // Standard-Teilnahmetext (Bereinigt von HTML-Entities wie &#8211;, &#038;)
+    $clean_course_title   = html_entity_decode(html_entity_decode($course->title ?? '', ENT_QUOTES, 'UTF-8'), ENT_QUOTES, 'UTF-8');
+    $default_tb_teilnahme = 'an der Veranstaltung <strong>„' . htmlspecialchars($clean_course_title, ENT_QUOTES, 'UTF-8') . '“</strong> im Gesamtausmaß von <strong>' . htmlspecialchars($course->anzahl_le ?? '') . ' Lehreinheiten</strong> (1 LE = 45 Minuten) teilgenommen hat.';
+    $tb_teilnahme_raw     = $course->get_crm_field('TB - Bestaetigungstext') ?: $course->get_crm_field('TB - Teilnahme Text');
+    if (empty(trim(strip_tags($tb_teilnahme_raw)))) {
+        $tb_teilnahme_raw = $default_tb_teilnahme;
+    }
+    $tb_teilnahme         = html_entity_decode(html_entity_decode($clean_inline_html($tb_teilnahme_raw), ENT_QUOTES, 'UTF-8'), ENT_QUOTES, 'UTF-8');
 
-    // Teilnehmerdaten
-    $tn_name    = trim($course->vorname . ' ' . $course->nachname);
-    $tn_svr     = trim((string)$course->svr);
-    $tn_adresse = trim($course->street . ' ' . $course->house_number);
-    $tn_plz     = trim((string)$course->zip_code);
-    $tn_ort     = trim((string)$course->city);
+    // --- Modular HTML Sections for Dynamic Ordering ---
+    require_once dirname(__DIR__) . '/helpers/crm-pdf-sections.php';
 
-    $html = '
-    <div style="font-size:4pt">&nbsp;</div>
-    <table cellspacing="0" cellpadding="0" style="width: 100%;">
-        <tr>
-            <td style="font-size:14pt; font-weight: bold; line-height:1; text-align: center;">
-                ' . htmlspecialchars($tb_title) . '
-            </td>
-        </tr>
-    </table>
-    <div style="font-size:6pt">&nbsp;</div>
-    <table cellspacing="0" cellpadding="0" style="width: 100%;">
-        <tr>
-            <td style="font-size:9.5pt; line-height: 1; text-align: left;">
-                <span>' . htmlspecialchars($tb_einleitung) . '</span>
-            </td>
-        </tr>
-    </table>
-    <div style="font-size:5pt">&nbsp;</div>';
+    // 1. Titel & Einleitung
+    $tb_titel_subs = [
+        'haupttitel' => '<div style="font-size:4pt">&nbsp;</div>
+        <table cellspacing="0" cellpadding="0" style="width: 100%;">
+            <tr>
+                <td style="font-size:14pt; font-weight: bold; line-height:1; text-align: center;">
+                    ' . htmlspecialchars($tb_title) . '
+                </td>
+            </tr>
+        </table>
+        <div style="font-size:6pt">&nbsp;</div>',
 
-    // Box 1: Kursteilnehmer
-    $html .= '<div style="width: 100%; border: 2px solid black;">
+        'einleitung' => '<table cellspacing="0" cellpadding="0" style="width: 100%;">
+            <tr>
+                <td style="font-size:9.5pt; line-height: 1; text-align: left;">
+                    <span>' . htmlspecialchars($tb_einleitung) . '</span>
+                </td>
+            </tr>
+        </table>
+        <div style="font-size:5pt">&nbsp;</div>',
+    ];
+
+    // 2. Box 1: Kursteilnehmer
+    $sec_teilnehmer = '<div style="width: 100%; border: 2px solid black;">
         <div style="font-size:3pt">&nbsp;</div>
         <table cellpadding="2" cellspacing="0" style="width: 100%;">
             <tr>
@@ -120,8 +126,8 @@ function xsieben_teilnahmebestaetigung_pdf($entry_id, $course_id, $output_to_bro
     </div>
     <div style="font-size:6pt">&nbsp;</div>';
 
-    // Zeitraum
-    $html .= '<table cellpadding="0" cellspacing="0" style="width: 100%;">
+    // 3. Zeitraum
+    $sec_zeitraum = '<table cellpadding="0" cellspacing="0" style="width: 100%;">
         <tr>
             <td style="width: 8%; vertical-align: middle; font-size:9.5pt;">vom </td>
             <td style="width: 26%;">
@@ -142,8 +148,8 @@ function xsieben_teilnahmebestaetigung_pdf($entry_id, $course_id, $output_to_bro
     </table>
     <div style="font-size:6pt">&nbsp;</div>';
 
-    // Box 2: Ausbildungsstätte & Schulungsort
-    $html .= '<div style="width: 100%; border: 2px solid black;">
+    // 4. Box 2: Ausbildungsstätte & Schulungsort
+    $sec_ausbildungsstaette = '<div style="width: 100%; border: 2px solid black;">
         <div style="font-size:3pt">&nbsp;</div>
         <table cellpadding="2" cellspacing="0" style="width: 100%;">
             <tr>
@@ -221,16 +227,16 @@ function xsieben_teilnahmebestaetigung_pdf($entry_id, $course_id, $output_to_bro
     </div>
     <div style="font-size:8pt">&nbsp;</div>';
 
-    // Teilnahme Text
-    $html .= '<table style="width: 100%;">
+    // 5. Teilnahme Text
+    $sec_teilnahme = '<table style="width: 100%;">
         <tr>
             <td style="font-size: 9.5pt; line-height: 1.35;">' . $tb_teilnahme . '</td>
         </tr>
     </table>
     <div style="font-size:10pt">&nbsp;</div>';
 
-    // Datum & Unterschrift (wie auf dem Angebot)
-    $html .= '<table cellspacing="0" cellpadding="0" style="width: 100%;">
+    // 6. Datum & Unterschrift
+    $sec_signatur = '<table cellspacing="0" cellpadding="0" style="width: 100%;">
         <tr>
             <td style="width: 45%; vertical-align: top; font-size: 9.5pt;">
                 ' . htmlspecialchars($tb_datum) . '
@@ -241,6 +247,148 @@ function xsieben_teilnahmebestaetigung_pdf($entry_id, $course_id, $output_to_bro
             </td>
         </tr>
     </table>';
+
+    // Holen der hierarchischen Abschnitte
+    $all_sections = crm_get_pdf_section_order('tb', $entry_id);
+
+    if (is_array($custom_sections) && !empty($custom_sections)) {
+        $allowed_keys = is_string(reset($custom_sections)) ? $custom_sections : array_column($custom_sections, 'key');
+        $filtered = [];
+        foreach ($all_sections as $sec) {
+            if (in_array($sec['key'], $allowed_keys, true)) {
+                $filtered[] = $sec;
+            }
+        }
+        $all_sections = $filtered;
+    }
+
+    $html = '';
+    foreach ($all_sections as $sec) {
+        if (empty($sec['enabled'])) {
+            continue;
+        }
+
+        $sec_key   = $sec['key'];
+        $is_custom = !empty($sec['is_custom']);
+
+        if ($is_custom) {
+            $html .= '<div style="margin-bottom:12px; font-size:10pt; line-height:1.6;">';
+            if (!empty($sec['title'])) {
+                $html .= '<strong>' . esc_html($sec['title']) . '</strong><br>';
+            }
+            if (!empty($sec['content'])) {
+                $html .= crm_replace_pdf_placeholders($sec['content'], $course);
+            }
+            if (!empty($sec['subsections'])) {
+                foreach ($sec['subsections'] as $sub) {
+                    if (!empty($sub['enabled']) && !empty($sub['content'])) {
+                        $html .= '<div style="margin-top:6px;">' . crm_replace_pdf_placeholders($sub['content'], $course) . '</div>';
+                    }
+                }
+            }
+            $html .= '</div><div style="font-size:10pt">&nbsp;</div>';
+
+        } elseif ($sec_key === 'titel') {
+            if (!empty($sec['subsections'])) {
+                foreach ($sec['subsections'] as $sub) {
+                    if (empty($sub['enabled'])) continue;
+                    $sk = $sub['key'];
+                    if (!empty($sub['is_custom']) && !empty($sub['content'])) {
+                        $html .= '<div style="font-size:9.5pt; margin-bottom:4px;">' . crm_replace_pdf_placeholders($sub['content'], $course) . '</div>';
+                    } elseif (isset($tb_titel_subs[$sk])) {
+                        $def_sub = $tb_titel_subs[$sk];
+                        if (!empty($sub['content'])) {
+                            if (strpos($sub['content'], '{standard}') !== false) {
+                                $custom = str_replace('{standard}', $def_sub, $sub['content']);
+                            } else {
+                                $custom = '<div style="font-size:9.5pt; margin-bottom:4px;">' . $sub['content'] . '</div>';
+                            }
+                            $html .= crm_replace_pdf_placeholders($custom, $course);
+                        } else {
+                            $html .= $def_sub;
+                        }
+                    }
+                }
+            } else {
+                $html .= implode('', $tb_titel_subs);
+            }
+
+        } elseif ($sec_key === 'teilnehmer') {
+            $sec_out = $sec_teilnehmer;
+            if (!empty($sec['subsections'])) {
+                foreach ($sec['subsections'] as $sub) {
+                    if (empty($sub['enabled'])) continue;
+                    if (!empty($sub['content'])) {
+                        $sec_out = (strpos($sub['content'], '{standard}') !== false)
+                            ? str_replace('{standard}', $sec_teilnehmer, $sub['content'])
+                            : $sub['content'];
+                        $sec_out = crm_replace_pdf_placeholders($sec_out, $course);
+                    }
+                }
+            }
+            $html .= $sec_out;
+
+        } elseif ($sec_key === 'zeitraum') {
+            $sec_out = $sec_zeitraum;
+            if (!empty($sec['subsections'])) {
+                foreach ($sec['subsections'] as $sub) {
+                    if (empty($sub['enabled'])) continue;
+                    if (!empty($sub['content'])) {
+                        $sec_out = (strpos($sub['content'], '{standard}') !== false)
+                            ? str_replace('{standard}', $sec_zeitraum, $sub['content'])
+                            : $sub['content'];
+                        $sec_out = crm_replace_pdf_placeholders($sec_out, $course);
+                    }
+                }
+            }
+            $html .= $sec_out;
+
+        } elseif ($sec_key === 'ausbildungsstaette') {
+            $sec_out = $sec_ausbildungsstaette;
+            if (!empty($sec['subsections'])) {
+                foreach ($sec['subsections'] as $sub) {
+                    if (empty($sub['enabled'])) continue;
+                    if (!empty($sub['content'])) {
+                        $sec_out = (strpos($sub['content'], '{standard}') !== false)
+                            ? str_replace('{standard}', $sec_ausbildungsstaette, $sub['content'])
+                            : $sub['content'];
+                        $sec_out = crm_replace_pdf_placeholders($sec_out, $course);
+                    }
+                }
+            }
+            $html .= $sec_out;
+
+        } elseif ($sec_key === 'teilnahme') {
+            $sec_out = $sec_teilnahme;
+            if (!empty($sec['subsections'])) {
+                foreach ($sec['subsections'] as $sub) {
+                    if (empty($sub['enabled'])) continue;
+                    if (!empty($sub['content'])) {
+                        $sec_out = (strpos($sub['content'], '{standard}') !== false)
+                            ? str_replace('{standard}', $sec_teilnahme, $sub['content'])
+                            : $sub['content'];
+                        $sec_out = crm_replace_pdf_placeholders($sec_out, $course);
+                    }
+                }
+            }
+            $html .= $sec_out;
+
+        } elseif ($sec_key === 'signatur') {
+            $sec_out = $sec_signatur;
+            if (!empty($sec['subsections'])) {
+                foreach ($sec['subsections'] as $sub) {
+                    if (empty($sub['enabled'])) continue;
+                    if (!empty($sub['content'])) {
+                        $sec_out = (strpos($sub['content'], '{standard}') !== false)
+                            ? str_replace('{standard}', $sec_signatur, $sub['content'])
+                            : $sub['content'];
+                        $sec_out = crm_replace_pdf_placeholders($sec_out, $course);
+                    }
+                }
+            }
+            $html .= $sec_out;
+        }
+    }
 
     if (!class_exists('MYPDFA_teilnahme')) {
         class MYPDFA_teilnahme extends TCPDF

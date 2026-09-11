@@ -1,36 +1,45 @@
 <?php 
+require_once dirname(__DIR__) . '/helpers/normalize.php';
+
 function x_sieben_handle_email_submission() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+
     // Check if the form has been submitted and the nonce is valid for security.
     if (isset($_POST['x_sieben_send_email']) && wp_verify_nonce($_POST['x_sieben_email_nonce'], 'send_pdf_email')) {
         
         // Sanitize and retrieve the form data
-        $to = sanitize_email($_POST['x_sieben_recipient']);
+        $to      = sanitize_email($_POST['x_sieben_recipient']);
         $subject = sanitize_text_field($_POST['x_sieben_subject']);
-        $body = wp_kses_post($_POST['x_sieben_body']);
+        $body    = wp_kses_post($_POST['x_sieben_body']);
         $pdf_url = esc_url_raw($_POST['x_sieben_pdf_url']);
+
+        // Factorium Normalization (HTTPS, Cookie Consent Restoration, Emoji Fix)
+        if (function_exists('crm_prepare_email_html_for_sending')) {
+            $body = crm_prepare_email_html_for_sending($body);
+        }
 
         // Check if the file exists on the server to be attached
         $upload_dir = wp_upload_dir();
-        $pdf_path = str_replace($upload_dir['baseurl'], $upload_dir['basedir'], $pdf_url);
+        $pdf_path   = str_replace($upload_dir['baseurl'], $upload_dir['basedir'], $pdf_url);
 
         if (file_exists($pdf_path)) {
             $attachments = [$pdf_path];
         } else {
-            // Handle case where file is not found
-            // You might want to log this or provide an error message
             $attachments = [];
         }
 
+        $headers = ['Content-Type: text/html; charset=UTF-8'];
+
         // Use wp_mail to send the email with the attachment
-        $sent = wp_mail($to, $subject, $body, [], $attachments);
+        $sent = wp_mail($to, $subject, $body, $headers, $attachments);
 
         if ($sent) {
-            // Display a success message to the user
             echo '<div class="notice notice-success is-dismissible"><p>E-Mail erfolgreich versendet!</p></div>';
         } else {
-            // Display an error message
             echo '<div class="notice notice-error is-dismissible"><p>E-Mail konnte nicht versendet werden. Bitte versuchen Sie es erneut.</p></div>';
         }
     }
 }
-add_action('admin_notices', 'x_sieben_handle_email_submission');
+add_action('admin_notices', 'x_sieben_handle_email_submission');

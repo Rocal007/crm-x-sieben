@@ -225,6 +225,10 @@ document.addEventListener("DOMContentLoaded", function () {
                         if (data.data.output) {
                             detailsContainer.innerHTML = data.data.output;
                             detailsContainer.style.display = 'block';
+                            initPdfSectionSortables();
+                        } else {
+                            detailsContainer.innerHTML = '<div style="padding:40px 20px; text-align:center; color:#16a34a;"><span class="dashicons dashicons-yes-alt" style="font-size:36px; width:36px; height:36px; margin-bottom:10px;"></span><br><strong style="font-size:15px; color:#1e293b;">' + (data.data.message || 'Aktion erfolgreich ausgeführt.') + '</strong></div>';
+                            detailsContainer.style.display = 'block';
                         }
                         displayNotice(data.data.message, 'success');
                     } else {
@@ -645,6 +649,245 @@ jQuery(document).ready(function ($) {
         e.preventDefault();
         executeSendMail(true, this);
     });
+
+    // =========================================================================
+    // CRM PDF-Anhänge & Beilagen Manager (Interactive Selector & Media Picker)
+    // =========================================================================
+
+    /**
+     * Synchronisiert alle aktiv angehakten PDF-Anhänge mit dem Hidden-Input #x_sieben_pdf_url,
+     * dem Zähler-Badge und den Download-Links in der rechten Sidebar.
+     */
+    function crmSyncAttachmentsState() {
+        const $checkedBoxes = $('#crm-attachments-list .crm-attachment-checkbox:checked');
+        const urls = [];
+        const activeDocs = [];
+
+        $checkedBoxes.each(function () {
+            const url = $(this).val();
+            if (url && url.trim() !== '') {
+                urls.push(url.trim());
+                const $card = $(this).closest('.crm-attachment-card');
+                const docType = $(this).data('doc-type') || '';
+                const title = $card.find('strong').first().text() || 'PDF-Dokument';
+                activeDocs.push({
+                    url: url.trim(),
+                    docType: docType,
+                    title: title
+                });
+            }
+        });
+
+        // 1. Verstecktes Input aktualisieren
+        const joinedUrls = urls.join(',');
+        $('#x_sieben_pdf_url').val(joinedUrls);
+
+        // 2. Zähler-Badge aktualisieren
+        const count = urls.length;
+        const $badge = $('#crm-attachments-count-badge');
+        if ($badge.length) {
+            if (count === 0) {
+                $badge.text('Keine Anhänge (reine Text-Mail)').css({ background: '#94a3b8' });
+            } else if (count === 1) {
+                $badge.text('1 Anhang aktiv').css({ background: '#0f766e' });
+            } else {
+                $badge.text(count + ' Anhänge aktiv').css({ background: '#0f766e' });
+            }
+        }
+
+        // 3. Rechte Sidebar Download-Buttons synchronisieren
+        const $sidebarList = $('#crm-sidebar-attachments-list');
+        if ($sidebarList.length) {
+            $sidebarList.empty();
+            if (activeDocs.length === 0) {
+                $sidebarList.append('<li class="crm-sidebar-no-att" style="font-size:11.5px; color:#94a3b8; font-style:italic;">Keine Anhänge ausgewählt</li>');
+            } else {
+                activeDocs.forEach(function (doc) {
+                    let label = doc.title;
+                    if (doc.docType === 'agb') label = 'AGB 2025 herunterladen';
+                    else if (doc.docType === 'kb') label = 'Kurszeiten (KB) herunterladen';
+                    else if (doc.docType === 'angebot') label = 'Angebot herunterladen';
+                    else if (doc.docType === 'tb') label = 'Teilnahmebestätigung herunterladen';
+                    else if (doc.docType === 'diplom') label = 'Diplom herunterladen';
+                    else if (doc.docType === 'invoice') label = 'Honorarnote herunterladen';
+                    else if (!label.toLowerCase().includes('herunterladen')) label += ' herunterladen';
+
+                    $sidebarList.append(
+                        '<li><a href="' + doc.url + '" download class="button crm-sidebar-download-btn" data-url="' + doc.url + '" style="display:flex; align-items:center; gap:5px; font-size:12px; width:100%; justify-content:center;"><span class="dashicons dashicons-download"></span> ' + label + '</a></li>'
+                    );
+                });
+            }
+        }
+    }
+
+    // Checkbox Umschaltung: An-/Abwählen und On-Demand Generierung
+    $(document).on('change', '.crm-attachment-checkbox', function () {
+        const $checkbox = $(this);
+        const $card = $checkbox.closest('.crm-attachment-card');
+        const isChecked = $checkbox.is(':checked');
+        const docType = $checkbox.data('doc-type');
+        const currentUrl = $checkbox.val();
+
+        if (isChecked) {
+            // Falls noch keine URL vorhanden ist -> On-the-Fly generieren
+            if (!currentUrl || currentUrl.trim() === '') {
+                const $list = $('#crm-attachments-list');
+                const entryId = $list.data('entry');
+                const courseId = $list.data('course');
+
+                $checkbox.prop('disabled', true);
+                $card.addClass('is-loading').css({ opacity: 0.65 });
+                $card.find('.crm-att-status-indicator').text('⏳ Wird generiert...').css({ color: '#0284c7' });
+
+                $.ajax({
+                    url: xSiebenAjax.ajax_url,
+                    type: 'POST',
+                    data: {
+                        action: 'crm_generate_attachment_pdf',
+                        doc_type: docType,
+                        entry_id: entryId,
+                        course_id: courseId,
+                        security: xSiebenAjax.nonce
+                    },
+                    success: function (res) {
+                        $checkbox.prop('disabled', false);
+                        $card.removeClass('is-loading').css({ opacity: 1 });
+
+                        if (res.success && res.data && res.data.pdf_url) {
+                            $checkbox.val(res.data.pdf_url);
+                            $card.attr('data-doc-url', res.data.pdf_url);
+                            $card.addClass('is-attached').css({ 'border-color': '#0f766e', background: '#f0fdf4' });
+                            $card.find('.crm-att-status-indicator').text('✓ Angehängt').css({ color: '#16a34a' });
+
+                            const sizeInfo = res.data.filesize ? ' (' + res.data.filesize + ')' : '';
+                            $card.find('.crm-att-filename-line').html('<span>📄 ' + (res.data.filename || 'PDF-Dokument') + sizeInfo + '</span>');
+
+                            const $previewBtn = $card.find('.crm-att-preview-btn');
+                            $previewBtn.attr('href', res.data.pdf_url).css('display', 'inline-flex');
+
+                            crmSyncAttachmentsState();
+                        } else {
+                            $checkbox.prop('checked', false);
+                            $card.removeClass('is-attached').css({ 'border-color': '#e2e8f0', background: '#f8fafc' });
+                            $card.find('.crm-att-status-indicator').text('Fehler').css({ color: '#dc2626' });
+                            alert('PDF konnte nicht generiert werden: ' + ((res.data && res.data.message) || 'Unbekannter Fehler'));
+                        }
+                    },
+                    error: function () {
+                        $checkbox.prop('disabled', false).prop('checked', false);
+                        $card.removeClass('is-loading is-attached').css({ opacity: 1, 'border-color': '#e2e8f0', background: '#f8fafc' });
+                        $card.find('.crm-att-status-indicator').text('Fehler').css({ color: '#dc2626' });
+                        alert('Serverfehler beim Generieren des PDFs.');
+                    }
+                });
+                return;
+            }
+
+            // Normales Aktivieren bei bestehender URL
+            $card.addClass('is-attached').css({ 'border-color': '#0f766e', background: '#f0fdf4' });
+            $card.find('.crm-att-status-indicator').text('✓ Angehängt').css({ color: '#16a34a' });
+            $card.find('.crm-att-preview-btn').css('display', 'inline-flex');
+        } else {
+            // Deaktivieren
+            $card.removeClass('is-attached').css({ 'border-color': '#e2e8f0', background: '#f8fafc' });
+            $card.find('.crm-att-status-indicator').text('Nicht angehängt').css({ color: '#94a3b8' });
+        }
+
+        crmSyncAttachmentsState();
+    });
+
+    // Manuelles Hinzufügen von PDFs über die WordPress Mediathek
+    $(document).on('click', '.crm-add-custom-attachment-btn', function (e) {
+        e.preventDefault();
+
+        let customMediaFrame;
+        customMediaFrame = wp.media({
+            title: 'PDF-Anhang für E-Mail auswählen oder hochladen',
+            button: { text: 'Als Anhang beilegen' },
+            library: { type: 'application/pdf' },
+            multiple: true
+        });
+
+        customMediaFrame.on('select', function () {
+            const selection = customMediaFrame.state().get('selection');
+            const $list = $('#crm-attachments-list');
+
+            selection.each(function (attachment) {
+                const mediaData = attachment.toJSON();
+                const fileUrl = mediaData.url;
+                const fileName = mediaData.filename || mediaData.title || 'Anhang.pdf';
+                const fileTitle = mediaData.title || fileName;
+                const fileSize = mediaData.filesizeHumanReadable || '';
+
+                // Prüfen ob URL schon in der Liste existiert
+                let alreadyExists = false;
+                $list.find('.crm-attachment-checkbox').each(function () {
+                    if ($(this).val() === fileUrl) {
+                        alreadyExists = true;
+                        $(this).prop('checked', true).trigger('change');
+                    }
+                });
+
+                if (alreadyExists) return;
+
+                const customId = 'crm_att_custom_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+                const cardHtml = `
+                    <div class="crm-attachment-card is-attached is-custom" 
+                         data-doc-type="custom"
+                         data-doc-url="${fileUrl}"
+                         style="display:flex; align-items:center; justify-content:space-between; border:1px solid #0f766e; background:#f0fdf4; border-radius:6px; padding:8px 12px; transition:all 0.15s ease;">
+                        <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
+                            <input type="checkbox" 
+                                   class="crm-attachment-checkbox" 
+                                   id="${customId}" 
+                                   value="${fileUrl}" 
+                                   data-doc-type="custom"
+                                   checked="checked" 
+                                   style="margin:0; width:17px; height:17px; cursor:pointer;">
+                            <label for="${customId}" style="cursor:pointer; display:flex; align-items:center; gap:8px; margin:0; min-width:0;">
+                                <span class="dashicons dashicons-paperclip" style="color:#4f46e5; font-size:18px;"></span>
+                                <div style="min-width:0;">
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <strong style="font-size:12.5px; color:#0f172a;">${fileTitle}</strong>
+                                        <span class="crm-badge" style="background:#e0e7ff; color:#3730a3; font-size:10px; font-weight:600; padding:1px 6px; border-radius:10px;">📎 Mediathek</span>
+                                        ${fileSize ? `<span style="font-size:11px; color:#64748b;">(${fileSize})</span>` : ''}
+                                    </div>
+                                    <div class="crm-att-filename-line" style="font-size:11px; color:#64748b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:420px;">
+                                        <span>📄 ${fileName}</span>
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                        <div class="crm-att-actions" style="display:flex; align-items:center; gap:6px; margin-left:12px;">
+                            <span class="crm-att-status-indicator" style="font-size:11px; font-weight:600; color:#16a34a;">✓ Angehängt</span>
+                            <a href="${fileUrl}" target="_blank" class="button button-small crm-att-preview-btn" style="display:inline-flex; align-items:center; gap:3px; font-size:11px; height:24px; line-height:22px; padding:0 7px;" title="PDF ansehen">
+                                <span class="dashicons dashicons-visibility" style="font-size:13px; line-height:13px; width:13px; height:13px;"></span> Vorschau
+                            </a>
+                            <button type="button" class="button button-small crm-remove-custom-att-btn" style="color:#dc2626; height:24px; line-height:22px; padding:0 6px;" title="Anhang entfernen">
+                                <span class="dashicons dashicons-trash" style="font-size:13px; line-height:13px; width:13px; height:13px;"></span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                $list.append(cardHtml);
+            });
+
+            crmSyncAttachmentsState();
+        });
+
+        customMediaFrame.open();
+    });
+
+    // Entfernen eines manuell hinzugefügten Anhangs
+    $(document).on('click', '.crm-remove-custom-att-btn', function (e) {
+        e.preventDefault();
+        const $card = $(this).closest('.crm-attachment-card');
+        $card.fadeOut(150, function () {
+            $(this).remove();
+            crmSyncAttachmentsState();
+        });
+    });
 });
 jQuery(document).ready(function ($) {
 
@@ -671,5 +914,1702 @@ jQuery(document).ready(function ($) {
         }
     });
 
+    // --- Diplom Abschluss-Erfolg Umschalten & Aktualisieren ---
+    $('body').on('click', '.crm-btn-update-diplom-success', function (e) {
+        e.preventDefault();
+        const $btn = $(this);
+        const entryId = $btn.data('entry');
+        const courseId = $btn.data('course');
+        const successVal = $('input[name="crm_diplom_success_choice"]:checked').val() || 'erfolgreich';
+        updateDiplomSuccess(entryId, courseId, successVal, $btn);
+    });
+
+    $('body').on('change', 'input.crm-diplom-success-radio', function () {
+        const entryId = $(this).data('entry');
+        const courseId = $(this).data('course');
+        const successVal = $(this).val();
+        const $btn = $('.crm-btn-update-diplom-success');
+        updateDiplomSuccess(entryId, courseId, successVal, $btn);
+    });
+
+    function updateDiplomSuccess(entryId, courseId, successVal, $btn) {
+        if (!entryId || !courseId) return;
+
+        const originalHtml = $btn && $btn.length ? $btn.html() : '';
+        if ($btn && $btn.length) {
+            $btn.prop('disabled', true).html('<span class="dashicons dashicons-update spin"></span> Aktualisiere...');
+        }
+        const $feedback = $('.crm-diplom-success-feedback');
+
+        $.ajax({
+            url: crmData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'crm_update_diplom_success',
+                nonce: crmData.nonce,
+                entry_id: entryId,
+                course_id: courseId,
+                success_val: successVal
+            },
+            success: function (res) {
+                if (res.success && res.data && res.data.pdf_url) {
+                    const freshUrl = res.data.pdf_url + '?t=' + new Date().getTime();
+                    // Update preview embed
+                    const $embed = $('#x-sieben-pdf-preview embed');
+                    if ($embed.length) {
+                        $embed.attr('src', freshUrl);
+                    }
+                    // Update download button
+                    const $downloadLink = $('#x-sieben-button-row a[download]');
+                    if ($downloadLink.length) {
+                        $downloadLink.attr('href', res.data.pdf_url);
+                    }
+                    // Update email button data-pdf
+                    const $emailBtns = $('#x-sieben-button-row .x-sieben-email-btn');
+                    $emailBtns.each(function () {
+                        $(this).data('pdf', res.data.pdf_url).attr('data-pdf', res.data.pdf_url);
+                    });
+
+                    if ($feedback.length) {
+                        $feedback.text('✓ ' + res.data.message).css('color', '#16a34a').fadeIn();
+                        setTimeout(function () { $feedback.fadeOut(); }, 3500);
+                    }
+                } else {
+                    alert((res.data && res.data.message) ? res.data.message : 'Fehler beim Aktualisieren des Diploms.');
+                }
+            },
+            error: function () {
+                alert('Netzwerkfehler beim Aktualisieren des Diploms.');
+            },
+            complete: function () {
+                if ($btn && $btn.length) {
+                    $btn.prop('disabled', false).html(originalHtml);
+                }
+            }
+        });
+    }
+
+    // ==========================================
+    // PDF SECTIONS DRAG & DROP CONTROLLER (HIERARCHICAL)
+    // ==========================================
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function initPdfSectionSortables() {
+        if (typeof jQuery !== 'undefined' && typeof jQuery.fn.sortable !== 'undefined') {
+            jQuery('.crm-sortable-sections').sortable({
+                handle: '.crm-section-drag-handle',
+                items: '> li.crm-pdf-section-item',
+                placeholder: 'crm-section-sortable-placeholder',
+                axis: 'y',
+                cursor: 'grabbing',
+                opacity: 0.88,
+                tolerance: 'pointer'
+            });
+
+            jQuery('.crm-sortable-subsections').sortable({
+                handle: '.crm-sub-drag-handle',
+                items: '> li.crm-pdf-subsection-item',
+                placeholder: 'crm-sub-sortable-placeholder',
+                axis: 'y',
+                cursor: 'grabbing',
+                opacity: 0.88,
+                tolerance: 'pointer'
+            });
+
+            if (jQuery('#crm-fields-wrapper').length) {
+                jQuery('#crm-fields-wrapper').sortable({
+                    handle: '.crm-field-drag-handle',
+                    items: '> .crm-field-block',
+                    placeholder: 'crm-field-sortable-placeholder',
+                    axis: 'y',
+                    cursor: 'grabbing',
+                    opacity: 0.88,
+                    tolerance: 'pointer'
+                });
+            }
+        }
+    }
+    window.initPdfSectionSortables = initPdfSectionSortables;
+    initPdfSectionSortables();
+
+    function crmGetHierarchicalSections($manager) {
+        const sections = [];
+        $manager.find('> .crm-sortable-sections > .crm-pdf-section-item').each(function () {
+            const $sec = jQuery(this);
+            const isCustom = ($sec.data('custom') == 1 || $sec.attr('data-custom') === '1') ? 1 : 0;
+            const key = $sec.data('key') || $sec.attr('data-key');
+            const enabled = $sec.find('> .crm-section-header-row .crm-section-checkbox').is(':checked') ? 1 : 0;
+            const title = $sec.data('title') || $sec.find('.crm-section-title').text().trim();
+            const badge = $sec.data('badge') || '';
+            const color = $sec.data('color') || '';
+            const content = $sec.data('content') || '';
+
+            // Header & Footer settings
+            let headerMode = $sec.find('.crm-hf-header-mode').val() || $sec.data('header-mode') || $sec.attr('data-header-mode') || 'master';
+            let headerLogo = 0;
+            const $hLogoCb = $sec.find('.crm-hf-header-logo');
+            if ($hLogoCb.length) {
+                headerLogo = $hLogoCb.is(':checked') ? 1 : 0;
+            } else {
+                headerLogo = ($sec.data('header-logo') == 1 || $sec.attr('data-header-logo') === '1') ? 1 : 0;
+            }
+
+            let headerAddress = 0;
+            const $hAddrCb = $sec.find('.crm-hf-header-address');
+            if ($hAddrCb.length) {
+                headerAddress = $hAddrCb.is(':checked') ? 1 : 0;
+            } else {
+                headerAddress = ($sec.data('header-address') == 1 || $sec.attr('data-header-address') === '1') ? 1 : 0;
+            }
+
+            let headerCustom = '';
+            const $hCustomInput = $sec.find('.crm-hf-header-custom');
+            if ($hCustomInput.length) {
+                headerCustom = $hCustomInput.val();
+            } else {
+                headerCustom = $sec.data('header-custom') || $sec.attr('data-header-custom') || '';
+            }
+
+            let footerMode = $sec.find('.crm-hf-footer-mode').val() || $sec.data('footer-mode') || $sec.attr('data-footer-mode') || 'master';
+            let footerCompany = 0;
+            const $fCompCb = $sec.find('.crm-hf-footer-company');
+            if ($fCompCb.length) {
+                footerCompany = $fCompCb.is(':checked') ? 1 : 0;
+            } else {
+                footerCompany = ($sec.data('footer-company') == 1 || $sec.attr('data-footer-company') === '1') ? 1 : 0;
+            }
+
+            let footerPageNum = 0;
+            const $fPageCb = $sec.find('.crm-hf-footer-page-num');
+            if ($fPageCb.length) {
+                footerPageNum = $fPageCb.is(':checked') ? 1 : 0;
+            } else {
+                footerPageNum = ($sec.data('footer-page-num') == 1 || $sec.attr('data-footer-page-num') === '1') ? 1 : 0;
+            }
+
+            let footerDate = 0;
+            const $fDateCb = $sec.find('.crm-hf-footer-date');
+            if ($fDateCb.length) {
+                footerDate = $fDateCb.is(':checked') ? 1 : 0;
+            } else {
+                footerDate = ($sec.data('footer-date') == 1 || $sec.attr('data-footer-date') === '1') ? 1 : 0;
+            }
+
+            let footerCustom = '';
+            const $fCustomInput = $sec.find('.crm-hf-footer-custom');
+            if ($fCustomInput.length) {
+                footerCustom = $fCustomInput.val();
+            } else {
+                footerCustom = $sec.data('footer-custom') || $sec.attr('data-footer-custom') || '';
+            }
+
+            const subsections = [];
+            $sec.find('.crm-sortable-subsections > .crm-pdf-subsection-item').each(function () {
+                const $sub = jQuery(this);
+                const subKey = $sub.data('sub-key') || $sub.attr('data-sub-key');
+                const subEnabled = $sub.find('.crm-sub-checkbox').is(':checked') ? 1 : 0;
+                const subCustom = ($sub.data('custom') == 1 || $sub.attr('data-custom') === '1') ? 1 : 0;
+                let subTitle = $sub.data('title') || $sub.find('.crm-sub-title').text().trim();
+                let subContent = $sub.data('content');
+                if (typeof subContent === 'undefined') {
+                    subContent = $sub.attr('data-content') || '';
+                }
+
+                // If user edited in drawer without clicking 'Übernehmen'
+                const $inputTitle = $sub.find('.crm-sub-input-title');
+                const $inputContent = $sub.find('.crm-sub-input-content');
+                if ($inputTitle.length && $inputTitle.val().trim()) {
+                    subTitle = $inputTitle.val().trim();
+                }
+                if ($inputContent.length) {
+                    subContent = $inputContent.val();
+                }
+
+                if (subKey) {
+                    subsections.push({
+                        key: subKey,
+                        enabled: subEnabled,
+                        is_custom: subCustom,
+                        title: subTitle,
+                        content: subContent
+                    });
+                }
+            });
+
+            if (key) {
+                sections.push({
+                    key: key,
+                    enabled: enabled,
+                    is_custom: isCustom,
+                    title: title,
+                    badge: badge,
+                    color: color,
+                    content: content,
+                    header_mode: headerMode,
+                    header_logo: headerLogo,
+                    header_address: headerAddress,
+                    header_custom: headerCustom,
+                    footer_mode: footerMode,
+                    footer_company: footerCompany,
+                    footer_page_num: footerPageNum,
+                    footer_date: footerDate,
+                    footer_custom: footerCustom,
+                    subsections: subsections
+                });
+            }
+        });
+        return sections;
+    }
+    window.crmGetHierarchicalSections = crmGetHierarchicalSections;
+
+    function updateSubsectionsCounter($sec) {
+        const total = $sec.find('.crm-sortable-subsections > .crm-pdf-subsection-item').length;
+        const active = $sec.find('.crm-sortable-subsections > .crm-pdf-subsection-item .crm-sub-checkbox:checked').length;
+        $sec.find('.crm-subs-counter-badge').html(active + '/' + total + ' aktiv &#x25BE;');
+    }
+
+    function updateHfSummaryBadge($sec) {
+        const hMode = $sec.find('.crm-hf-header-mode').val() || $sec.data('header-mode') || 'master';
+        const fMode = $sec.find('.crm-hf-footer-mode').val() || $sec.data('footer-mode') || 'master';
+
+        let hLabel = 'H: Standard';
+        if (hMode === 'master') hLabel = 'H: Master';
+        else if (hMode === 'none') hLabel = 'H: Ohne';
+        else if (hMode === 'logo_only') hLabel = 'H: Nur Logo';
+        else if (hMode === 'address_only') hLabel = 'H: Nur Adr';
+        else if (hMode === 'custom') hLabel = 'H: Eigen';
+        else if (hMode === 'full') hLabel = 'H: Logo+Adr';
+
+        let fLabel = 'F: Standard';
+        if (fMode === 'master') fLabel = 'F: Master';
+        else if (fMode === 'none') fLabel = 'F: Ohne';
+        else if (fMode === 'page_numbers_only') fLabel = 'F: Nur Seite';
+        else if (fMode === 'company_only') fLabel = 'F: Nur Firma';
+        else if (fMode === 'full') fLabel = 'F: Firma+Dat+Seite';
+        else if (fMode === 'custom') fLabel = 'F: Eigen';
+
+        $sec.find('.crm-hf-summary-text').text(hLabel + ' | ' + fLabel);
+    }
+
+    // Toggle Header & Footer Drawer per Section
+    jQuery(document).on('click', '.crm-toggle-hf-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $item = jQuery(this).closest('.crm-pdf-section-item');
+        const $drawer = $item.find('> .crm-hf-drawer');
+        $drawer.slideToggle(180);
+    });
+
+    // Section Header Mode Change
+    jQuery(document).on('change', '.crm-hf-header-mode', function () {
+        const $sec = jQuery(this).closest('.crm-pdf-section-item');
+        const mode = jQuery(this).val();
+        const $logoCb = $sec.find('.crm-hf-header-logo');
+        const $addrCb = $sec.find('.crm-hf-header-address');
+        const $customBox = $sec.find('.crm-hf-header-custom-box');
+
+        if (mode === 'full') {
+            $logoCb.prop('checked', true);
+            $addrCb.prop('checked', true);
+            $customBox.hide();
+        } else if (mode === 'logo_only') {
+            $logoCb.prop('checked', true);
+            $addrCb.prop('checked', false);
+            $customBox.hide();
+        } else if (mode === 'address_only') {
+            $logoCb.prop('checked', false);
+            $addrCb.prop('checked', true);
+            $customBox.hide();
+        } else if (mode === 'none') {
+            $logoCb.prop('checked', false);
+            $addrCb.prop('checked', false);
+            $customBox.hide();
+        } else if (mode === 'custom') {
+            $customBox.slideDown(150);
+        } else if (mode === 'master') {
+            $customBox.hide();
+        }
+        $sec.attr('data-header-mode', mode).data('header-mode', mode);
+        updateHfSummaryBadge($sec);
+    });
+
+    // Header Checkboxes change (manual override updates mode)
+    jQuery(document).on('change', '.crm-hf-header-logo, .crm-hf-header-address', function () {
+        const $sec = jQuery(this).closest('.crm-pdf-section-item');
+        const hasLogo = $sec.find('.crm-hf-header-logo').is(':checked');
+        const hasAddr = $sec.find('.crm-hf-header-address').is(':checked');
+        const $mode = $sec.find('.crm-hf-header-mode');
+
+        if (hasLogo && hasAddr) {
+            $mode.val('full');
+        } else if (hasLogo && !hasAddr) {
+            $mode.val('logo_only');
+        } else if (!hasLogo && hasAddr) {
+            $mode.val('address_only');
+        } else {
+            $mode.val('none');
+        }
+        $sec.find('.crm-hf-header-custom-box').hide();
+        $sec.attr('data-header-mode', $mode.val()).data('header-mode', $mode.val());
+        updateHfSummaryBadge($sec);
+    });
+
+    // Section Footer Mode Change
+    jQuery(document).on('change', '.crm-hf-footer-mode', function () {
+        const $sec = jQuery(this).closest('.crm-pdf-section-item');
+        const mode = jQuery(this).val();
+        const $compCb = $sec.find('.crm-hf-footer-company');
+        const $pageCb = $sec.find('.crm-hf-footer-page-num');
+        const $dateCb = $sec.find('.crm-hf-footer-date');
+        const $customBox = $sec.find('.crm-hf-footer-custom-box');
+
+        if (mode === 'standard') {
+            $compCb.prop('checked', true);
+            $pageCb.prop('checked', true);
+            $dateCb.prop('checked', false);
+            $customBox.hide();
+        } else if (mode === 'full') {
+            $compCb.prop('checked', true);
+            $pageCb.prop('checked', true);
+            $dateCb.prop('checked', true);
+            $customBox.hide();
+        } else if (mode === 'page_numbers_only') {
+            $compCb.prop('checked', false);
+            $pageCb.prop('checked', true);
+            $dateCb.prop('checked', false);
+            $customBox.hide();
+        } else if (mode === 'company_only') {
+            $compCb.prop('checked', true);
+            $pageCb.prop('checked', false);
+            $dateCb.prop('checked', false);
+            $customBox.hide();
+        } else if (mode === 'none') {
+            $compCb.prop('checked', false);
+            $pageCb.prop('checked', false);
+            $dateCb.prop('checked', false);
+            $customBox.hide();
+        } else if (mode === 'custom') {
+            $customBox.slideDown(150);
+        } else if (mode === 'master') {
+            $customBox.hide();
+        }
+        $sec.attr('data-footer-mode', mode).data('footer-mode', mode);
+        updateHfSummaryBadge($sec);
+    });
+
+    // Footer Checkboxes change (manual override updates mode)
+    jQuery(document).on('change', '.crm-hf-footer-company, .crm-hf-footer-page-num, .crm-hf-footer-date', function () {
+        const $sec = jQuery(this).closest('.crm-pdf-section-item');
+        const hasComp = $sec.find('.crm-hf-footer-company').is(':checked');
+        const hasPage = $sec.find('.crm-hf-footer-page-num').is(':checked');
+        const hasDate = $sec.find('.crm-hf-footer-date').is(':checked');
+        const $mode = $sec.find('.crm-hf-footer-mode');
+
+        if (hasComp && hasPage && hasDate) {
+            $mode.val('full');
+        } else if (hasComp && hasPage && !hasDate) {
+            $mode.val('standard');
+        } else if (!hasComp && hasPage && !hasDate) {
+            $mode.val('page_numbers_only');
+        } else if (hasComp && !hasPage && !hasDate) {
+            $mode.val('company_only');
+        } else if (!hasComp && !hasPage && !hasDate) {
+            $mode.val('none');
+        }
+        $sec.find('.crm-hf-footer-custom-box').hide();
+        $sec.attr('data-footer-mode', $mode.val()).data('footer-mode', $mode.val());
+        updateHfSummaryBadge($sec);
+    });
+
+    // Master Header Mode in Settings Box
+    jQuery(document).on('change', '.crm-master-header-mode', function () {
+        const mode = jQuery(this).val();
+        const $box = jQuery(this).closest('.crm-pdf-master-hf-box');
+        const $logoCb = $box.find('input[name="crm_pdf_master_hf[header_logo]"]');
+        const $addrCb = $box.find('input[name="crm_pdf_master_hf[header_address]"]');
+
+        if (mode === 'full') {
+            $logoCb.prop('checked', true);
+            $addrCb.prop('checked', true);
+        } else if (mode === 'logo_only') {
+            $logoCb.prop('checked', true);
+            $addrCb.prop('checked', false);
+        } else if (mode === 'address_only') {
+            $logoCb.prop('checked', false);
+            $addrCb.prop('checked', true);
+        } else if (mode === 'none') {
+            $logoCb.prop('checked', false);
+            $addrCb.prop('checked', false);
+        }
+    });
+
+    // Master Footer Mode in Settings Box
+    jQuery(document).on('change', '.crm-master-footer-mode', function () {
+        const mode = jQuery(this).val();
+        const $box = jQuery(this).closest('.crm-pdf-master-hf-box');
+        const $compCb = $box.find('input[name="crm_pdf_master_hf[footer_company]"]');
+        const $pageCb = $box.find('input[name="crm_pdf_master_hf[footer_page_num]"]');
+        const $dateCb = $box.find('input[name="crm_pdf_master_hf[footer_date]"]');
+
+        if (mode === 'standard') {
+            $compCb.prop('checked', true);
+            $pageCb.prop('checked', true);
+            $dateCb.prop('checked', false);
+        } else if (mode === 'full') {
+            $compCb.prop('checked', true);
+            $pageCb.prop('checked', true);
+            $dateCb.prop('checked', true);
+        } else if (mode === 'page_numbers_only') {
+            $compCb.prop('checked', false);
+            $pageCb.prop('checked', true);
+            $dateCb.prop('checked', false);
+        } else if (mode === 'company_only') {
+            $compCb.prop('checked', true);
+            $pageCb.prop('checked', false);
+            $dateCb.prop('checked', false);
+        } else if (mode === 'none') {
+            $compCb.prop('checked', false);
+            $pageCb.prop('checked', false);
+            $dateCb.prop('checked', false);
+        }
+    });
+
+    // Accordion Toggle on Section Header Row
+    jQuery(document).on('click', '.crm-section-header-row', function (e) {
+        if (jQuery(e.target).closest('.crm-section-toggle-label, .crm-section-checkbox, .crm-section-actions, .crm-section-drag-handle, .crm-toggle-hf-btn').length) {
+            return;
+        }
+        const $item = jQuery(this).closest('.crm-pdf-section-item');
+        const $drawer = $item.find('> .crm-subsections-drawer');
+        const $chevron = $item.find('.crm-section-chevron');
+
+        if ($drawer.is(':visible')) {
+            $drawer.slideUp(180);
+            $chevron.html('&#x25B8;');
+        } else {
+            $drawer.slideDown(200);
+            $chevron.html('&#x25BE;');
+        }
+    });
+
+    // Section Checkbox toggle (active/disabled state)
+    jQuery(document).on('change', '.crm-section-checkbox', function () {
+        const $item = jQuery(this).closest('.crm-pdf-section-item');
+        if (jQuery(this).is(':checked')) {
+            $item.removeClass('is-disabled').addClass('is-active').css('opacity', '1');
+        } else {
+            $item.removeClass('is-active').addClass('is-disabled').css('opacity', '0.55');
+        }
+    });
+
+    // Subsection Checkbox toggle
+    jQuery(document).on('change', '.crm-sub-checkbox', function () {
+        const $sub = jQuery(this).closest('.crm-pdf-subsection-item');
+        const $sec = jQuery(this).closest('.crm-pdf-section-item');
+        if (jQuery(this).is(':checked')) {
+            $sub.removeClass('sub-disabled').addClass('sub-active').css('opacity', '1');
+        } else {
+            $sub.removeClass('sub-active').addClass('sub-disabled').css('opacity', '0.5');
+        }
+        updateSubsectionsCounter($sec);
+    });
+
+    // Move Up / Move Down for Sections
+    jQuery(document).on('click', '.crm-move-up-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $item = jQuery(this).closest('.crm-pdf-section-item');
+        const $prev = $item.prev('.crm-pdf-section-item');
+        if ($prev.length) {
+            $item.insertBefore($prev).hide().fadeIn(150);
+        }
+    });
+    jQuery(document).on('click', '.crm-move-down-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $item = jQuery(this).closest('.crm-pdf-section-item');
+        const $next = $item.next('.crm-pdf-section-item');
+        if ($next.length) {
+            $item.insertAfter($next).hide().fadeIn(150);
+        }
+    });
+
+    // Move Up / Move Down for Subsections
+    jQuery(document).on('click', '.crm-sub-move-up', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $sub = jQuery(this).closest('.crm-pdf-subsection-item');
+        const $prev = $sub.prev('.crm-pdf-subsection-item');
+        if ($prev.length) {
+            $sub.insertBefore($prev).hide().fadeIn(150);
+        }
+    });
+    jQuery(document).on('click', '.crm-sub-move-down', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $sub = jQuery(this).closest('.crm-pdf-subsection-item');
+        const $next = $sub.next('.crm-pdf-subsection-item');
+        if ($next.length) {
+            $sub.insertAfter($next).hide().fadeIn(150);
+        }
+    });
+
+    // Toggle Add Section Drawer
+    jQuery(document).on('click', '.crm-toggle-add-section-btn', function (e) {
+        e.preventDefault();
+        const $manager = jQuery(this).closest('.crm-pdf-sections-manager');
+        $manager.find('.crm-add-section-drawer').slideToggle(180);
+    });
+    jQuery(document).on('click', '.crm-cancel-add-sec-btn', function (e) {
+        e.preventDefault();
+        const $manager = jQuery(this).closest('.crm-pdf-sections-manager');
+        $manager.find('.crm-add-section-drawer').slideUp(180);
+    });
+
+    // Create New Custom Section
+    jQuery(document).on('click', '.crm-create-section-btn', function (e) {
+        e.preventDefault();
+        const $manager = jQuery(this).closest('.crm-pdf-sections-manager');
+        const title = $manager.find('.crm-new-sec-title').val().trim();
+        if (!title) {
+            alert('Bitte einen Titel für den neuen Abschnitt eingeben.');
+            $manager.find('.crm-new-sec-title').focus();
+            return;
+        }
+        const badge = $manager.find('.crm-new-sec-badge').val().trim() || 'Zusatz';
+        const color = $manager.find('.crm-new-sec-color').val() || '#007C90';
+        const content = $manager.find('.crm-new-sec-content').val().trim();
+        const key = 'custom_sec_' + Date.now();
+
+        const secHtml = `
+        <li class="crm-pdf-section-item is-active"
+            data-key="${escapeHtml(key)}"
+            data-custom="1"
+            data-title="${escapeHtml(title)}"
+            data-badge="${escapeHtml(badge)}"
+            data-color="${escapeHtml(color)}"
+            data-content="${escapeHtml(content)}"
+            data-header-mode="master"
+            data-header-logo="1"
+            data-header-address="1"
+            data-header-custom=""
+            data-footer-mode="master"
+            data-footer-company="1"
+            data-footer-page-num="1"
+            data-footer-date="0"
+            data-footer-custom=""
+            style="margin-bottom:9px; background:#ffffff; border:1px solid #cbd5e1; border-left:4px solid ${escapeHtml(color)}; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,0.03); transition:all 0.15s ease;">
+            <div class="crm-section-header-row" style="display:flex; align-items:center; gap:10px; padding:9px 12px; cursor:pointer;">
+                <span class="crm-section-drag-handle" title="Ziehen zum Verschieben" style="color:#94a3b8; cursor:grab; font-size:16px; display:flex; align-items:center; user-select:none;">&#x2630;</span>
+                <label class="crm-section-toggle-label" style="display:flex; align-items:center; margin:0; cursor:pointer;" onclick="event.stopPropagation();">
+                    <input type="checkbox" class="crm-section-checkbox" value="1" checked style="margin:0; width:15px; height:15px; cursor:pointer;">
+                </label>
+                <span class="crm-section-chevron" style="color:#64748b; font-size:14px; width:16px; height:16px; display:inline-flex; align-items:center; justify-content:center; transition:transform 0.15s ease; user-select:none;">&#x25BE;</span>
+                <div class="crm-section-clickable-info" style="flex:1; min-width:0;">
+                    <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                        <strong class="crm-section-title" style="font-size:12.5px; color:#0f172a;">${escapeHtml(title)}</strong>
+                        <span class="crm-section-badge" style="font-size:9.5px; font-weight:700; text-transform:uppercase; padding:1px 5px; border-radius:8px; background:#f1f5f9; color:${escapeHtml(color)}; border:1px solid #e2e8f0;">${escapeHtml(badge)}</span>
+                        <span style="font-size:9px; font-weight:600; padding:1px 4px; border-radius:4px; background:#e0e7ff; color:#4338ca;">Benutzerdefiniert</span>
+                    </div>
+                </div>
+                <button type="button" class="button-link crm-toggle-hf-btn" title="Kopf- & Fußzeile für diese Seite anpassen" style="font-size:10px; font-weight:600; padding:2px 7px; border-radius:12px; background:#f5f3ff; color:#6d28d9; border:1px solid #ddd6fe; display:inline-flex; align-items:center; gap:3px; text-decoration:none; cursor:pointer; user-select:none; white-space:nowrap;" onclick="event.stopPropagation();">
+                    <span class="dashicons dashicons-editor-kitchensink" style="font-size:12px; width:12px; height:12px; line-height:12px;"></span>
+                    <span class="crm-hf-summary-text">H: Master | F: Master</span>
+                    &#x25BE;
+                </button>
+                <span class="crm-subs-counter-badge" style="font-size:10px; font-weight:600; padding:2px 7px; border-radius:12px; background:#f8fafc; color:#475569; border:1px solid #e2e8f0; white-space:nowrap; user-select:none;">1 Unterabschnitt &#x25BE;</span>
+                <div class="crm-section-actions" style="display:flex; gap:3px; align-items:center;" onclick="event.stopPropagation();">
+                    <button type="button" class="button-link crm-delete-section-btn" title="Abschnitt löschen" style="color:#dc2626; font-size:13px; text-decoration:none; padding:1px 4px;">✕</button>
+                    <button type="button" class="button-link crm-move-up-btn" title="Nach oben verschieben" style="color:#64748b; font-size:13px; text-decoration:none; padding:1px 3px;">&uarr;</button>
+                    <button type="button" class="button-link crm-move-down-btn" title="Nach unten verschieben" style="color:#64748b; font-size:13px; text-decoration:none; padding:1px 3px;">&darr;</button>
+                </div>
+            </div>
+            <div class="crm-hf-drawer" style="display:none; padding:12px 14px; background:#fcfdff; border-top:1px solid #e2e8f0; border-bottom:1px solid #cbd5e1;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid #e2e8f0;">
+                    <span style="font-size:11.5px; font-weight:700; color:#4338ca; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:5px;">
+                        <span class="dashicons dashicons-admin-appearance" style="font-size:14px; width:14px; height:14px;"></span>
+                        Kopf- & Fußzeile dieser Seite:
+                    </span>
+                    <small style="color:#64748b; font-size:10.5px;">Master-Voreinstellung oder gezielte Steuerung</small>
+                </div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:14px;">
+                    <div style="background:#ffffff; border:1px solid #cbd5e1; border-radius:6px; padding:10px 12px;">
+                        <div style="font-size:12px; font-weight:700; color:#0f172a; margin-bottom:8px; display:flex; align-items:center; gap:5px;">
+                            <span class="dashicons dashicons-heading" style="color:#007C90; font-size:15px; width:15px; height:15px;"></span>
+                            <span>Kopfzeile (Header)</span>
+                        </div>
+                        <div style="margin-bottom:8px;">
+                            <label style="display:block; font-size:10.5px; font-weight:600; color:#334155; margin-bottom:3px;">Header-Modus / Vorlage:</label>
+                            <select class="crm-hf-header-mode regular-text" style="width:100%; height:28px; font-size:11.5px;">
+                                <option value="master" selected>⚡ Wie Master-Einstellung</option>
+                                <option value="full">Logo & Firmenadresse (Standard)</option>
+                                <option value="logo_only">Nur Logo (ohne Adresse)</option>
+                                <option value="address_only">Nur Firmenadresse (ohne Logo)</option>
+                                <option value="none">🚫 Keine Kopfzeile (ausblenden)</option>
+                                <option value="custom">✏️ Eigener HTML-Header</option>
+                            </select>
+                        </div>
+                        <div class="crm-hf-header-checkboxes" style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:8px; font-size:11px; color:#334155;">
+                            <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+                                <input type="checkbox" class="crm-hf-header-logo" value="1" checked style="margin:0;">
+                                <span>Logo anzeigen</span>
+                            </label>
+                            <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+                                <input type="checkbox" class="crm-hf-header-address" value="1" checked style="margin:0;">
+                                <span>Adresse & Kontakt anzeigen</span>
+                            </label>
+                        </div>
+                        <div class="crm-hf-header-custom-box" style="display:none; margin-top:6px;">
+                            <label style="display:block; font-size:10px; font-weight:600; color:#475569; margin-bottom:2px;">Eigener Header HTML / Platzhalter:</label>
+                            <textarea class="crm-hf-header-custom" rows="2" style="width:100%; font-size:11px; font-family:monospace;" placeholder="HTML oder Platzhalter wie {kurstitel}..."></textarea>
+                        </div>
+                    </div>
+                    <div style="background:#ffffff; border:1px solid #cbd5e1; border-radius:6px; padding:10px 12px;">
+                        <div style="font-size:12px; font-weight:700; color:#0f172a; margin-bottom:8px; display:flex; align-items:center; gap:5px;">
+                            <span class="dashicons dashicons-editor-insertmore" style="color:#007C90; font-size:15px; width:15px; height:15px;"></span>
+                            <span>Fußzeile (Footer)</span>
+                        </div>
+                        <div style="margin-bottom:8px;">
+                            <label style="display:block; font-size:10.5px; font-weight:600; color:#334155; margin-bottom:3px;">Footer-Modus / Vorlage:</label>
+                            <select class="crm-hf-footer-mode regular-text" style="width:100%; height:28px; font-size:11.5px;">
+                                <option value="master" selected>⚡ Wie Master-Einstellung</option>
+                                <option value="standard">Firmendaten + Seitenzahlen (Standard)</option>
+                                <option value="full">Firmendaten + Seitenzahlen + Datum</option>
+                                <option value="page_numbers_only">Nur Seitenzahlen</option>
+                                <option value="company_only">Nur Firmendaten</option>
+                                <option value="none">🚫 Keine Fußzeile (ausblenden)</option>
+                                <option value="custom">✏️ Eigener Text / Footer</option>
+                            </select>
+                        </div>
+                        <div class="crm-hf-footer-checkboxes" style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:8px; font-size:11px; color:#334155;">
+                            <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+                                <input type="checkbox" class="crm-hf-footer-company" value="1" checked style="margin:0;">
+                                <span>Firmendaten</span>
+                            </label>
+                            <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+                                <input type="checkbox" class="crm-hf-footer-page-num" value="1" checked style="margin:0;">
+                                <span>Seitenzahlen</span>
+                            </label>
+                            <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+                                <input type="checkbox" class="crm-hf-footer-date" value="1" style="margin:0;">
+                                <span>Datum</span>
+                            </label>
+                        </div>
+                        <div class="crm-hf-footer-custom-box" style="display:none; margin-top:6px;">
+                            <label style="display:block; font-size:10px; font-weight:600; color:#475569; margin-bottom:2px;">Eigener Footer-Text ({PAGENO}, {NB}, {datum}):</label>
+                            <input type="text" class="crm-hf-footer-custom regular-text" style="width:100%; height:26px; font-size:11px;" placeholder="z. B. Vertraulich | Seite {PAGENO} von {NB}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="crm-subsections-drawer" style="display:block; padding:10px 14px 12px 14px; background:#f8fafc; border-top:1px solid #e2e8f0; border-radius:0 0 6px 6px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:4px; border-bottom:1px solid #e2e8f0;">
+                    <span style="font-size:11px; font-weight:700; color:#334155; text-transform:uppercase; letter-spacing:0.5px;">Unterabschnitte dieser Seite:</span>
+                    <small style="color:#64748b; font-size:10.5px;">Ziehen zum Sortieren | Häkchen zum Ein-/Ausblenden</small>
+                </div>
+                <ul class="crm-sortable-subsections" style="list-style:none; margin:0 0 10px 0; padding:0;">
+                    <li class="crm-pdf-subsection-item sub-active"
+                        data-sub-key="body"
+                        data-custom="0"
+                        data-title="Seiteninhalt"
+                        data-orig-title="Seiteninhalt"
+                        data-content="${escapeHtml(content)}"
+                        data-default-content=""
+                        style="display:block; margin-bottom:6px; background:#ffffff; border:1px solid #cbd5e1; border-radius:5px; transition:all 0.12s ease; overflow:hidden;">
+                        <div class="crm-sub-row" style="display:flex; align-items:center; gap:8px; padding:6px 10px; cursor:grab;">
+                            <span class="crm-sub-drag-handle" title="Ziehen zum Sortieren" style="color:#94a3b8; font-size:14px; cursor:grab; user-select:none;">&#x22EE;&#x22EE;</span>
+                            <label style="display:flex; align-items:center; margin:0; cursor:pointer;" title="Unterabschnitt ein-/ausblenden">
+                                <input type="checkbox" class="crm-sub-checkbox" value="1" checked style="margin:0; width:14px; height:14px; cursor:pointer;">
+                            </label>
+                            <div style="flex:1; min-width:0;">
+                                <span class="crm-sub-title" style="font-size:11.5px; font-weight:600; color:#1e293b;">Seiteninhalt</span>
+                                <span class="crm-sub-custom-badge" style="${content ? 'display:inline-block;' : 'display:none;'} font-size:8.5px; font-weight:600; padding:1px 4px; border-radius:3px; background:#fef3c7; color:#b45309; border:1px solid #fde68a; margin-left:4px;">Angepasst</span>
+                            </div>
+                            <div class="crm-sub-actions" style="display:flex; gap:3px; align-items:center;">
+                                <button type="button" class="button-link crm-edit-sub-btn" title="Unterabschnitt bearbeiten" style="color:#007C90; font-size:10.5px; font-weight:600; padding:1px 6px; text-decoration:none; display:inline-flex; align-items:center; gap:2px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:3px; cursor:pointer;">✎ <span class="crm-edit-sub-text">Bearbeiten</span></button>
+                                <button type="button" class="button-link crm-sub-move-up" title="Nach oben" style="color:#64748b; font-size:11px; padding:0 2px; text-decoration:none;">&uarr;</button>
+                                <button type="button" class="button-link crm-sub-move-down" title="Nach unten" style="color:#64748b; font-size:11px; padding:0 2px; text-decoration:none;">&darr;</button>
+                            </div>
+                        </div>
+                        <div class="crm-sub-edit-drawer" style="display:none; padding:10px 12px; background:#f8fafc; border-top:1px solid #e2e8f0; cursor:default;">
+                            <div style="margin-bottom:6px;">
+                                <label style="display:block; font-size:10.5px; font-weight:600; color:#334155; margin-bottom:2px;">Titel des Unterabschnitts:</label>
+                                <input type="text" class="crm-sub-input-title regular-text" value="Seiteninhalt" style="width:100%; height:26px; font-size:11.5px;">
+                            </div>
+                            <div style="margin-bottom:6px;">
+                                <label style="display:block; font-size:10.5px; font-weight:600; color:#334155; margin-bottom:2px;">Inhalt / Text / HTML:</label>
+                                <textarea class="crm-sub-input-content" rows="4" style="width:100%; font-size:11.5px; font-family:monospace; line-height:1.4;" placeholder="Freitext oder HTML für diesen Unterabschnitt eingeben...">${escapeHtml(content)}</textarea>
+                            </div>
+                            <div class="crm-sub-chips-bar" style="margin-bottom:8px; display:flex; gap:4px; flex-wrap:wrap; align-items:center;">
+                                <span style="font-size:9.5px; color:#475569; font-weight:600;">Platzhalter:</span>
+                                <button type="button" class="button-link crm-chip-btn" data-tag="{vorname}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{vorname}</button>
+                                <button type="button" class="button-link crm-chip-btn" data-tag="{nachname}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{nachname}</button>
+                                <button type="button" class="button-link crm-chip-btn" data-tag="{kurstitel}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{kurstitel}</button>
+                                <button type="button" class="button-link crm-chip-btn" data-tag="{startdatum}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{startdatum}</button>
+                                <button type="button" class="button-link crm-chip-btn" data-tag="{preis}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{preis}</button>
+                                <button type="button" class="button-link crm-chip-btn" data-tag="{datum}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{datum}</button>
+                                <button type="button" class="button-link crm-chip-btn" data-tag="{expire}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{expire}</button>
+                                <button type="button" class="button-link crm-chip-btn" data-tag="{anrede_brief}" title="Postalisches Herrn / Frau" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{anrede_brief}</button>
+                                <button type="button" class="button-link crm-chip-btn" data-tag="{kunden_firma}" title="Firmenname des Kunden" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{kunden_firma}</button>
+                                <button type="button" class="button-link crm-chip-btn" data-tag="{empfaenger_adresse}" title="Kompletter normgerechter Adressblock" style="font-size:9.5px; padding:1px 5px; background:#ecfdf5; color:#065f46; border-radius:3px; text-decoration:none; border:1px solid #a7f3d0; font-weight:600;">{empfaenger_adresse}</button>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; padding-top:4px;">
+                                <div style="display:flex; gap:6px;">
+                                    <button type="button" class="button button-primary crm-sub-apply-edit-btn" style="background:#007C90; border-color:#007C90; font-size:11px; height:24px; line-height:22px; padding:0 8px;">✓ Übernehmen</button>
+                                    <button type="button" class="button crm-sub-close-edit-btn" style="font-size:11px; height:24px; line-height:22px; padding:0 6px;">Schließen</button>
+                                </div>
+                            </div>
+                        </div>
+                    </li>
+                </ul>
+                <div class="crm-add-sub-wrapper">
+                    <button type="button" class="button button-secondary crm-toggle-add-sub-btn" style="font-size:11px; height:24px; line-height:22px; padding:0 8px; display:inline-flex; align-items:center; gap:3px;">
+                        <span class="dashicons dashicons-plus" style="font-size:12px; width:12px; height:12px;"></span>
+                        Unterabschnitt hinzufügen
+                    </button>
+                    <div class="crm-add-sub-drawer" style="display:none; margin-top:8px; padding:10px; background:#ffffff; border:1px solid #cbd5e1; border-radius:4px;">
+                        <div style="margin-bottom:6px;">
+                            <label style="display:block; font-size:10.5px; font-weight:600; color:#334155; margin-bottom:2px;">Titel des Unterabschnitts *</label>
+                            <input type="text" class="crm-new-sub-title regular-text" placeholder="z. B. Zusätzlicher Hinweis oder Textabsatz" style="width:100%; height:26px; font-size:11.5px;">
+                        </div>
+                        <div style="margin-bottom:6px;">
+                            <label style="display:block; font-size:10.5px; font-weight:600; color:#334155; margin-bottom:2px;">Inhalt / Freitext (HTML erlaubt)</label>
+                            <textarea class="crm-new-sub-content" rows="2" placeholder="Text oder HTML für diesen Unterabschnitt..." style="width:100%; font-size:11.5px; font-family:monospace;"></textarea>
+                        </div>
+                        <div style="display:flex; gap:6px;">
+                            <button type="button" class="button button-primary crm-create-sub-btn" style="background:#007C90; border-color:#007C90; font-size:11px; height:24px; line-height:22px; padding:0 8px;">Hinzufügen</button>
+                            <button type="button" class="button crm-cancel-add-sub-btn" style="font-size:11px; height:24px; line-height:22px; padding:0 6px;">Abbrechen</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </li>
+        `;
+
+        $manager.find('> .crm-sortable-sections').append(secHtml);
+        $manager.find('.crm-new-sec-title').val('');
+        $manager.find('.crm-new-sec-badge').val('');
+        $manager.find('.crm-new-sec-content').val('');
+        $manager.find('.crm-add-section-drawer').slideUp(180);
+
+        initPdfSectionSortables();
+    });
+
+    // Delete custom section
+    jQuery(document).on('click', '.crm-delete-section-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (confirm('Diesen benutzerdefinierten Abschnitt wirklich löschen?')) {
+            jQuery(this).closest('.crm-pdf-section-item').fadeOut(180, function () {
+                jQuery(this).remove();
+            });
+        }
+    });
+
+    // Toggle Add Subsection Drawer
+    jQuery(document).on('click', '.crm-toggle-add-sub-btn', function (e) {
+        e.preventDefault();
+        const $wrapper = jQuery(this).closest('.crm-add-sub-wrapper');
+        $wrapper.find('.crm-add-sub-drawer').slideToggle(150);
+    });
+    jQuery(document).on('click', '.crm-cancel-add-sub-btn', function (e) {
+        e.preventDefault();
+        const $wrapper = jQuery(this).closest('.crm-add-sub-wrapper');
+        $wrapper.find('.crm-add-sub-drawer').slideUp(150);
+    });
+
+    // Create New Custom Subsection
+    jQuery(document).on('click', '.crm-create-sub-btn', function (e) {
+        e.preventDefault();
+        const $drawer = jQuery(this).closest('.crm-add-sub-drawer');
+        const $sec = jQuery(this).closest('.crm-pdf-section-item');
+        const subTitle = $drawer.find('.crm-new-sub-title').val().trim();
+        if (!subTitle) {
+            alert('Bitte einen Titel für den Unterabschnitt eingeben.');
+            $drawer.find('.crm-new-sub-title').focus();
+            return;
+        }
+        const subContent = $drawer.find('.crm-new-sub-content').val().trim();
+        const subKey = 'custom_sub_' + Date.now();
+
+        const subHtml = `
+        <li class="crm-pdf-subsection-item sub-active"
+            data-sub-key="${escapeHtml(subKey)}"
+            data-custom="1"
+            data-title="${escapeHtml(subTitle)}"
+            data-orig-title="${escapeHtml(subTitle)}"
+            data-content="${escapeHtml(subContent)}"
+            data-default-content=""
+            style="display:block; margin-bottom:6px; background:#ffffff; border:1px solid #cbd5e1; border-radius:5px; transition:all 0.12s ease; overflow:hidden;">
+            <div class="crm-sub-row" style="display:flex; align-items:center; gap:8px; padding:6px 10px; cursor:grab;">
+                <span class="crm-sub-drag-handle" title="Ziehen zum Sortieren" style="color:#94a3b8; font-size:14px; cursor:grab; user-select:none;">&#x22EE;&#x22EE;</span>
+                <label style="display:flex; align-items:center; margin:0; cursor:pointer;" title="Unterabschnitt ein-/ausblenden">
+                    <input type="checkbox" class="crm-sub-checkbox" value="1" checked style="margin:0; width:14px; height:14px; cursor:pointer;">
+                </label>
+                <div style="flex:1; min-width:0;">
+                    <span class="crm-sub-title" style="font-size:11.5px; font-weight:600; color:#1e293b;">${escapeHtml(subTitle)}</span>
+                    <span style="font-size:8.5px; font-weight:600; padding:1px 4px; border-radius:3px; background:#e0e7ff; color:#4338ca; margin-left:4px;">Eigen</span>
+                    <span class="crm-sub-custom-badge" style="${subContent ? 'display:inline-block;' : 'display:none;'} font-size:8.5px; font-weight:600; padding:1px 4px; border-radius:3px; background:#fef3c7; color:#b45309; border:1px solid #fde68a; margin-left:4px;">Angepasst</span>
+                </div>
+                <div class="crm-sub-actions" style="display:flex; gap:3px; align-items:center;">
+                    <button type="button" class="button-link crm-edit-sub-btn" title="Unterabschnitt bearbeiten" style="color:#007C90; font-size:10.5px; font-weight:600; padding:1px 6px; text-decoration:none; display:inline-flex; align-items:center; gap:2px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:3px; cursor:pointer;">✎ <span class="crm-edit-sub-text">Bearbeiten</span></button>
+                    <button type="button" class="button-link crm-delete-sub-btn" title="Unterabschnitt löschen" style="color:#dc2626; font-size:12px; padding:0 3px; text-decoration:none;">✕</button>
+                    <button type="button" class="button-link crm-sub-move-up" title="Nach oben" style="color:#64748b; font-size:11px; padding:0 2px; text-decoration:none;">&uarr;</button>
+                    <button type="button" class="button-link crm-sub-move-down" title="Nach unten" style="color:#64748b; font-size:11px; padding:0 2px; text-decoration:none;">&darr;</button>
+                </div>
+            </div>
+            <div class="crm-sub-edit-drawer" style="display:none; padding:10px 12px; background:#f8fafc; border-top:1px solid #e2e8f0; cursor:default;">
+                <div style="margin-bottom:6px;">
+                    <label style="display:block; font-size:10.5px; font-weight:600; color:#334155; margin-bottom:2px;">Titel des Unterabschnitts:</label>
+                    <input type="text" class="crm-sub-input-title regular-text" value="${escapeHtml(subTitle)}" style="width:100%; height:26px; font-size:11.5px;">
+                </div>
+                <div style="margin-bottom:6px;">
+                    <label style="display:block; font-size:10.5px; font-weight:600; color:#334155; margin-bottom:2px;">Inhalt / Text / HTML:</label>
+                    <textarea class="crm-sub-input-content" rows="4" style="width:100%; font-size:11.5px; font-family:monospace; line-height:1.4;" placeholder="Freitext oder HTML eingeben...">${escapeHtml(subContent)}</textarea>
+                </div>
+                <div class="crm-sub-chips-bar" style="margin-bottom:8px; display:flex; gap:4px; flex-wrap:wrap; align-items:center;">
+                    <span style="font-size:9.5px; color:#475569; font-weight:600;">Platzhalter:</span>
+                    <button type="button" class="button-link crm-chip-btn" data-tag="{vorname}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{vorname}</button>
+                    <button type="button" class="button-link crm-chip-btn" data-tag="{nachname}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{nachname}</button>
+                    <button type="button" class="button-link crm-chip-btn" data-tag="{kurstitel}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{kurstitel}</button>
+                    <button type="button" class="button-link crm-chip-btn" data-tag="{startdatum}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{startdatum}</button>
+                    <button type="button" class="button-link crm-chip-btn" data-tag="{preis}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{preis}</button>
+                    <button type="button" class="button-link crm-chip-btn" data-tag="{datum}" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{datum}</button>
+                    <button type="button" class="button-link crm-chip-btn" data-tag="{anrede_brief}" title="Postalisches Herrn / Frau" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{anrede_brief}</button>
+                    <button type="button" class="button-link crm-chip-btn" data-tag="{kunden_firma}" title="Firmenname des Kunden" style="font-size:9.5px; padding:1px 5px; background:#e0f2fe; color:#0369a1; border-radius:3px; text-decoration:none; border:1px solid #bae6fd;">{kunden_firma}</button>
+                    <button type="button" class="button-link crm-chip-btn" data-tag="{empfaenger_adresse}" title="Kompletter normgerechter Adressblock" style="font-size:9.5px; padding:1px 5px; background:#ecfdf5; color:#065f46; border-radius:3px; text-decoration:none; border:1px solid #a7f3d0; font-weight:600;">{empfaenger_adresse}</button>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; padding-top:4px;">
+                    <div style="display:flex; gap:6px;">
+                        <button type="button" class="button button-primary crm-sub-apply-edit-btn" style="background:#007C90; border-color:#007C90; font-size:11px; height:24px; line-height:22px; padding:0 8px;">✓ Übernehmen</button>
+                        <button type="button" class="button crm-sub-close-edit-btn" style="font-size:11px; height:24px; line-height:22px; padding:0 6px;">Schließen</button>
+                    </div>
+                </div>
+            </div>
+        </li>
+        `;
+
+        $sec.find('.crm-sortable-subsections').append(subHtml);
+        $drawer.find('.crm-new-sub-title').val('');
+        $drawer.find('.crm-new-sub-content').val('');
+        $drawer.slideUp(150);
+
+        updateSubsectionsCounter($sec);
+        initPdfSectionSortables();
+    });
+
+    // Delete custom subsection
+    jQuery(document).on('click', '.crm-delete-sub-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $sub = jQuery(this).closest('.crm-pdf-subsection-item');
+        const $sec = jQuery(this).closest('.crm-pdf-section-item');
+        if (confirm('Diesen benutzerdefinierten Unterabschnitt wirklich löschen?')) {
+            $sub.fadeOut(150, function () {
+                jQuery(this).remove();
+                updateSubsectionsCounter($sec);
+            });
+        }
+    });
+
+    // Toggle Subsection Inline Edit Drawer
+    jQuery(document).on('click', '.crm-edit-sub-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $sub = jQuery(this).closest('.crm-pdf-subsection-item');
+        const $drawer = $sub.find('> .crm-sub-edit-drawer');
+        const $btnText = jQuery(this).find('.crm-edit-sub-text');
+
+        if ($drawer.is(':visible')) {
+            $drawer.slideUp(160);
+            $btnText.text('Bearbeiten');
+        } else {
+            $drawer.slideDown(180, function () {
+                $drawer.find('.crm-sub-input-title').focus();
+            });
+            $btnText.text('Schließen');
+        }
+    });
+
+    // Close Subsection Edit Drawer
+    jQuery(document).on('click', '.crm-sub-close-edit-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $sub = jQuery(this).closest('.crm-pdf-subsection-item');
+        $sub.find('> .crm-sub-edit-drawer').slideUp(160);
+        $sub.find('.crm-edit-sub-btn .crm-edit-sub-text').text('Bearbeiten');
+    });
+
+    // Insert Placeholder Chips
+    jQuery(document).on('click', '.crm-chip-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const tag = jQuery(this).data('tag');
+        const $drawer = jQuery(this).closest('.crm-sub-edit-drawer');
+        const textarea = $drawer.find('.crm-sub-input-content')[0];
+        if (!textarea) return;
+
+        const start = textarea.selectionStart || 0;
+        const end = textarea.selectionEnd || 0;
+        const text = textarea.value;
+        const before = text.substring(0, start);
+        const after = text.substring(end, text.length);
+
+        textarea.value = before + tag + after;
+        textarea.selectionStart = textarea.selectionEnd = start + tag.length;
+        textarea.focus();
+    });
+
+    // Apply Subsection Edits
+    jQuery(document).on('click', '.crm-sub-apply-edit-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $sub = jQuery(this).closest('.crm-pdf-subsection-item');
+        const $drawer = $sub.find('> .crm-sub-edit-drawer');
+        const newTitle = $drawer.find('.crm-sub-input-title').val().trim();
+        const newContent = $drawer.find('.crm-sub-input-content').val();
+
+        if (newTitle) {
+            $sub.data('title', newTitle).attr('data-title', newTitle);
+            $sub.find('.crm-sub-title').first().text(newTitle);
+        }
+
+        $sub.data('content', newContent).attr('data-content', newContent);
+
+        // Show badge "Angepasst" if custom content is active
+        const defaultContent = $sub.data('default-content') || $sub.attr('data-default-content') || '';
+        const isCustomSub = ($sub.data('custom') == 1 || $sub.attr('data-custom') === '1');
+        const hasCustomContent = (newContent.trim().length > 0 && newContent !== defaultContent);
+        const $badge = $sub.find('.crm-sub-custom-badge');
+
+        if (hasCustomContent || (isCustomSub && newContent.trim().length > 0)) {
+            $badge.show();
+        } else {
+            $badge.hide();
+        }
+
+        $drawer.slideUp(160);
+        $sub.find('.crm-edit-sub-btn .crm-edit-sub-text').text('Bearbeiten');
+
+        // Visual flash confirmation
+        $sub.css('background-color', '#f0fdf4');
+        setTimeout(function () {
+            $sub.css('background-color', '#ffffff');
+        }, 500);
+    });
+
+    // Reset Subsection to Default
+    jQuery(document).on('click', '.crm-sub-reset-default-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $sub = jQuery(this).closest('.crm-pdf-subsection-item');
+        const $drawer = $sub.find('> .crm-sub-edit-drawer');
+        const origTitle = $sub.data('orig-title') || $sub.attr('data-orig-title') || '';
+        const defaultContent = $sub.data('default-content') || $sub.attr('data-default-content') || '';
+
+        if (origTitle) {
+            $sub.data('title', origTitle).attr('data-title', origTitle);
+            $drawer.find('.crm-sub-input-title').val(origTitle);
+            $sub.find('.crm-sub-title').first().text(origTitle);
+        }
+
+        $sub.data('content', '').attr('data-content', '');
+        $drawer.find('.crm-sub-input-content').val(defaultContent);
+        $sub.find('.crm-sub-custom-badge').hide();
+
+        $drawer.slideUp(160);
+        $sub.find('.crm-edit-sub-btn .crm-edit-sub-text').text('Bearbeiten');
+
+        // Visual flash confirmation
+        $sub.css('background-color', '#fef2f2');
+        setTimeout(function () {
+            $sub.css('background-color', '#ffffff');
+        }, 500);
+    });
+
+    // ==========================================
+    // E-MAIL SECTIONS INLINE EDITING & ORGANIZER
+    // ==========================================
+    function initEmailSectionSortables() {
+        if (typeof jQuery !== 'undefined' && typeof jQuery.fn.sortable !== 'undefined') {
+            jQuery('.crm-sortable-email-sections').sortable({
+                handle: '.crm-email-sec-drag-handle',
+                items: '> li.crm-email-section-item',
+                placeholder: 'crm-email-sec-sortable-placeholder',
+                axis: 'y',
+                cursor: 'grabbing',
+                opacity: 0.88,
+                tolerance: 'pointer'
+            });
+        }
+    }
+    window.initEmailSectionSortables = initEmailSectionSortables;
+    initEmailSectionSortables();
+
+    // Toggle E-Mail Section Inline Edit Drawer via "Bearbeiten" Button
+    jQuery(document).on('click', '.crm-edit-email-sec-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $item = jQuery(this).closest('.crm-email-section-item');
+        const $drawer = $item.find('> .crm-email-sec-drawer');
+        const $btnText = jQuery(this).find('.crm-edit-email-sec-text');
+        const $chevron = $item.find('> .crm-email-sec-header-row .crm-email-sec-chevron');
+
+        if ($drawer.is(':visible')) {
+            $drawer.slideUp(160);
+            $btnText.text('Bearbeiten');
+            $chevron.css('transform', 'rotate(0deg)');
+        } else {
+            $drawer.slideDown(180, function () {
+                $drawer.find('.crm-email-sec-input-title').focus();
+            });
+            $btnText.text('Schließen');
+            $chevron.css('transform', 'rotate(90deg)');
+        }
+    });
+
+    // Accordion Click on Header Row (clicking anywhere on the row)
+    jQuery(document).on('click', '.crm-email-sec-header-row', function (e) {
+        if (jQuery(e.target).closest('.crm-email-sec-checkbox, .crm-email-sec-drag-handle, .crm-edit-email-sec-btn, .crm-delete-email-sec-btn, .crm-email-sec-move-up, .crm-email-sec-move-down').length) {
+            return;
+        }
+        const $item = jQuery(this).closest('.crm-email-section-item');
+        const $drawer = $item.find('> .crm-email-sec-drawer');
+        const $btnText = $item.find('.crm-edit-email-sec-btn .crm-edit-email-sec-text');
+        const $chevron = jQuery(this).find('.crm-email-sec-chevron');
+
+        if ($drawer.is(':visible')) {
+            $drawer.slideUp(160);
+            $btnText.text('Bearbeiten');
+            $chevron.css('transform', 'rotate(0deg)');
+        } else {
+            $drawer.slideDown(180, function () {
+                $drawer.find('.crm-email-sec-input-title').focus();
+            });
+            $btnText.text('Schließen');
+            $chevron.css('transform', 'rotate(90deg)');
+        }
+    });
+
+    // Close Button inside Drawer
+    jQuery(document).on('click', '.crm-email-sec-close-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $item = jQuery(this).closest('.crm-email-section-item');
+        $item.find('> .crm-email-sec-drawer').slideUp(160);
+        $item.find('.crm-edit-email-sec-btn .crm-edit-email-sec-text').text('Bearbeiten');
+        $item.find('.crm-email-sec-chevron').css('transform', 'rotate(0deg)');
+    });
+
+    // Insert Chips into E-Mail Section Textarea
+    jQuery(document).on('click', '.crm-email-sec-drawer .crm-chip-btn, .crm-email-sec-drawer .crm-email-insert-chip', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const tag = jQuery(this).data('tag') || jQuery(this).data('code') || jQuery(this).text().trim();
+        const $drawer = jQuery(this).closest('.crm-email-sec-drawer');
+        const textarea = $drawer.find('.crm-email-sec-input-content')[0];
+        if (!textarea || !tag) return;
+
+        const start = textarea.selectionStart || 0;
+        const end = textarea.selectionEnd || 0;
+        const text = textarea.value;
+        const before = text.substring(0, start);
+        const after = text.substring(end, text.length);
+
+        textarea.value = before + tag + after;
+        textarea.selectionStart = textarea.selectionEnd = start + tag.length;
+        textarea.focus();
+        jQuery(textarea).trigger('input').trigger('change');
+
+        // Visual flash feedback on chip
+        const $btn = jQuery(this);
+        $btn.css({ background: '#0284c7', color: '#ffffff' });
+        setTimeout(function () {
+            $btn.css({ background: '#ffffff', color: '#0369a1' });
+        }, 250);
+    });
+
+    // Apply E-Mail Section Edits ("Übernehmen")
+    jQuery(document).on('click', '.crm-email-sec-apply-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $item = jQuery(this).closest('.crm-email-section-item');
+        const $drawer = $item.find('> .crm-email-sec-drawer');
+        const newTitle = $drawer.find('.crm-email-sec-input-title').val().trim();
+        const newBadge = $drawer.find('.crm-email-sec-input-badge').val().trim();
+        const newContent = $drawer.find('.crm-email-sec-input-content').val();
+
+        if (newTitle) {
+            $item.data('title', newTitle).attr('data-title', newTitle);
+            $item.find('.crm-email-sec-title-text').first().text(newTitle);
+        }
+
+        $item.data('badge', newBadge).attr('data-badge', newBadge);
+        let $badgeEl = $item.find('.crm-email-sec-badge').first();
+        if (newBadge) {
+            if ($badgeEl.length) {
+                $badgeEl.text(newBadge).show();
+            } else {
+                const color = $item.data('color') || '#0284c7';
+                $item.find('.crm-email-sec-title-text').after('<span class="crm-email-sec-badge" style="font-size:9.5px; font-weight:700; text-transform:uppercase; padding:1px 6px; border-radius:8px; background:#f0f9ff; color:' + color + '; border:1px solid #e0f2fe; margin-left:4px;">' + escapeHtml(newBadge) + '</span>');
+            }
+        } else if ($badgeEl.length) {
+            $badgeEl.hide();
+        }
+
+        $item.data('content', newContent).attr('data-content', newContent);
+
+        // Show badge "Angepasst" if custom content is active
+        const defaultContent = $item.data('default-content') || $item.attr('data-default-content') || '';
+        const isCustom = ($item.data('custom') == 1 || $item.attr('data-custom') === '1');
+        const hasCustomContent = (newContent.trim().length > 0 && newContent.trim() !== defaultContent.trim());
+        const $customBadge = $item.find('.crm-email-sec-custom-badge');
+
+        if (hasCustomContent || (isCustom && newContent.trim().length > 0)) {
+            $customBadge.show();
+        } else {
+            $customBadge.hide();
+        }
+
+        $drawer.slideUp(160);
+        $item.find('.crm-edit-email-sec-btn .crm-edit-email-sec-text').text('Bearbeiten');
+        $item.find('.crm-email-sec-chevron').css('transform', 'rotate(0deg)');
+
+        // Visual flash confirmation
+        $item.css('background-color', '#f0fdf4');
+        setTimeout(function () {
+            $item.css('background-color', '#ffffff');
+        }, 500);
+
+        // Reload preview if available
+        const $manager = $item.closest('.crm-email-sections-manager');
+        const docType = $manager.data('doc');
+        if (docType && typeof window.loadEmailPreview === 'function') {
+            window.loadEmailPreview(docType, true);
+        }
+    });
+
+    // Reset E-Mail Section to Default ("Auf Standard zurücksetzen")
+    jQuery(document).on('click', '.crm-email-sec-reset-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $item = jQuery(this).closest('.crm-email-section-item');
+        const $drawer = $item.find('> .crm-email-sec-drawer');
+        const origTitle = $item.data('default-title') || $item.attr('data-default-title') || '';
+        const defaultBadge = $item.data('default-badge') || $item.attr('data-default-badge') || '';
+        const defaultContent = $item.data('default-content') || $item.attr('data-default-content') || '';
+
+        if (origTitle) {
+            $item.data('title', origTitle).attr('data-title', origTitle);
+            $drawer.find('.crm-email-sec-input-title').val(origTitle);
+            $item.find('.crm-email-sec-title-text').first().text(origTitle);
+        }
+
+        $item.data('badge', defaultBadge).attr('data-badge', defaultBadge);
+        $drawer.find('.crm-email-sec-input-badge').val(defaultBadge);
+        let $badgeEl = $item.find('.crm-email-sec-badge').first();
+        if (defaultBadge && $badgeEl.length) {
+            $badgeEl.text(defaultBadge).show();
+        }
+
+        $item.data('content', '').attr('data-content', '');
+        $drawer.find('.crm-email-sec-input-content').val(defaultContent);
+        $item.find('.crm-email-sec-custom-badge').hide();
+
+        $drawer.slideUp(160);
+        $item.find('.crm-edit-email-sec-btn .crm-edit-email-sec-text').text('Bearbeiten');
+        $item.find('.crm-email-sec-chevron').css('transform', 'rotate(0deg)');
+
+        // Visual flash confirmation
+        $item.css('background-color', '#fef2f2');
+        setTimeout(function () {
+            $item.css('background-color', '#ffffff');
+        }, 500);
+
+        // Reload preview if available
+        const $manager = $item.closest('.crm-email-sections-manager');
+        const docType = $manager.data('doc');
+        if (docType && typeof window.loadEmailPreview === 'function') {
+            window.loadEmailPreview(docType, true);
+        }
+    });
+
+    // Checkbox toggle opacity
+    jQuery(document).on('change', '.crm-email-sec-checkbox', function () {
+        const $item = jQuery(this).closest('.crm-email-section-item');
+        if (jQuery(this).is(':checked')) {
+            $item.removeClass('is-disabled').addClass('is-active').css('opacity', '1');
+        } else {
+            $item.removeClass('is-active').addClass('is-disabled').css('opacity', '0.55');
+        }
+        const $manager = $item.closest('.crm-email-sections-manager');
+        const docType = $manager.data('doc');
+        if (docType && typeof window.loadEmailPreview === 'function') {
+            window.loadEmailPreview(docType, true);
+        }
+    });
+
+    // Move Up / Move Down buttons
+    jQuery(document).on('click', '.crm-email-sec-move-up', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $item = jQuery(this).closest('.crm-email-section-item');
+        const $prev = $item.prev('.crm-email-section-item');
+        if ($prev.length) {
+            $item.insertBefore($prev).hide().fadeIn(150);
+            const $manager = $item.closest('.crm-email-sections-manager');
+            const docType = $manager.data('doc');
+            if (docType && typeof window.loadEmailPreview === 'function') {
+                window.loadEmailPreview(docType, true);
+            }
+        }
+    });
+
+    jQuery(document).on('click', '.crm-email-sec-move-down', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $item = jQuery(this).closest('.crm-email-section-item');
+        const $next = $item.next('.crm-email-section-item');
+        if ($next.length) {
+            $item.insertAfter($next).hide().fadeIn(150);
+            const $manager = $item.closest('.crm-email-sections-manager');
+            const docType = $manager.data('doc');
+            if (docType && typeof window.loadEmailPreview === 'function') {
+                window.loadEmailPreview(docType, true);
+            }
+        }
+    });
+
+    // Delete custom email section
+    jQuery(document).on('click', '.crm-delete-email-sec-btn', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (confirm('Diesen E-Mail-Abschnitt wirklich löschen?')) {
+            const $item = jQuery(this).closest('.crm-email-section-item');
+            const $manager = $item.closest('.crm-email-sections-manager');
+            const docType = $manager.data('doc');
+            $item.fadeOut(200, function () {
+                jQuery(this).remove();
+                if (docType && typeof window.loadEmailPreview === 'function') {
+                    window.loadEmailPreview(docType, true);
+                }
+            });
+        }
+    });
+
+    // Toggle Add Section Drawer
+    jQuery(document).on('click', '.crm-toggle-add-email-sec-btn', function (e) {
+        e.preventDefault();
+        const $manager = jQuery(this).closest('.crm-email-sections-manager');
+        $manager.find('.crm-add-email-sec-drawer').slideToggle(180);
+    });
+
+    jQuery(document).on('click', '.crm-cancel-add-email-sec-btn', function (e) {
+        e.preventDefault();
+        jQuery(this).closest('.crm-add-email-sec-drawer').slideUp(180);
+    });
+
+    // Create New Custom Email Section
+    jQuery(document).on('click', '.crm-create-email-sec-btn', function (e) {
+        e.preventDefault();
+        const $drawer = jQuery(this).closest('.crm-add-email-sec-drawer');
+        const $manager = $drawer.closest('.crm-email-sections-manager');
+        const $titleInput = $drawer.find('.crm-new-email-sec-title');
+        const title = $titleInput.val().trim();
+        if (!title) {
+            alert('Bitte geben Sie einen Titel ein.');
+            $titleInput.focus();
+            return;
+        }
+        const badge = $drawer.find('.crm-new-email-sec-badge').val().trim() || 'Custom';
+        const color = $drawer.find('.crm-new-email-sec-color').val() || '#0284c7';
+        const content = $drawer.find('.crm-new-email-sec-content').val();
+        const key = 'custom_' + Date.now();
+        const docType = $manager.data('doc') || 'angebot';
+
+        const newItemHtml = `
+            <li class="crm-email-section-item is-active"
+                data-key="${escapeHtml(key)}"
+                data-custom="1"
+                data-title="${escapeHtml(title)}"
+                data-default-title="${escapeHtml(title)}"
+                data-badge="${escapeHtml(badge)}"
+                data-default-badge="${escapeHtml(badge)}"
+                data-color="${escapeHtml(color)}"
+                data-content="${escapeHtml(content)}"
+                data-default-content=""
+                style="margin-bottom:8px; background:#ffffff; border:1px solid #cbd5e1; border-left:4px solid ${escapeHtml(color)}; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,0.03); transition:all 0.15s ease;">
+                <div class="crm-email-sec-header-row" style="display:flex; align-items:center; gap:10px; padding:9px 12px; cursor:pointer;">
+                    <span class="crm-email-sec-drag-handle" title="Ziehen zum Verschieben" style="color:#94a3b8; cursor:grab; font-size:16px; display:flex; align-items:center; user-select:none;">&#x2630;</span>
+                    <label class="crm-email-sec-toggle-label" style="display:flex; align-items:center; margin:0; cursor:pointer;" onclick="event.stopPropagation();">
+                        <input type="checkbox" class="crm-email-sec-checkbox" value="1" checked style="margin:0; width:15px; height:15px; cursor:pointer;">
+                    </label>
+                    <span class="crm-email-sec-chevron" style="color:#64748b; font-size:14px; width:16px; height:16px; display:inline-flex; align-items:center; justify-content:center; transition:transform 0.15s ease; user-select:none;">&#x25B8;</span>
+                    <div class="crm-email-sec-info" style="flex:1; min-width:0;">
+                        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                            <strong class="crm-email-sec-title-text" style="font-size:12.5px; color:#0f172a;">${escapeHtml(title)}</strong>
+                            <span class="crm-email-sec-badge" style="font-size:9.5px; font-weight:700; text-transform:uppercase; padding:1px 6px; border-radius:8px; background:#f0f9ff; color:${escapeHtml(color)}; border:1px solid #e0f2fe;">${escapeHtml(badge)}</span>
+                            <span style="font-size:9px; font-weight:600; padding:1px 4px; border-radius:4px; background:#e0e7ff; color:#4338ca;">Benutzerdefiniert</span>
+                            <span class="crm-email-sec-custom-badge" style="${content ? 'display:inline-block;' : 'display:none;'} font-size:8.5px; font-weight:600; padding:1px 4px; border-radius:3px; background:#fef3c7; color:#b45309; border:1px solid #fde68a;">Angepasst</span>
+                        </div>
+                    </div>
+                    <div class="crm-email-sec-actions" style="display:flex; gap:4px; align-items:center;" onclick="event.stopPropagation();">
+                        <button type="button" class="button-link crm-edit-email-sec-btn" title="Abschnitt bearbeiten" style="color:#0284c7; font-size:10.5px; font-weight:600; padding:1px 6px; text-decoration:none; display:inline-flex; align-items:center; gap:2px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:3px; cursor:pointer;">
+                            ✎ <span class="crm-edit-email-sec-text">Bearbeiten</span>
+                        </button>
+                        <button type="button" class="button-link crm-delete-email-sec-btn" title="Abschnitt löschen" style="color:#dc2626; font-size:13px; text-decoration:none; padding:1px 4px;">✕</button>
+                        <button type="button" class="button-link crm-email-sec-move-up" title="Nach oben verschieben" style="color:#64748b; font-size:13px; text-decoration:none; padding:1px 3px;">&uarr;</button>
+                        <button type="button" class="button-link crm-email-sec-move-down" title="Nach unten verschieben" style="color:#64748b; font-size:13px; text-decoration:none; padding:1px 3px;">&darr;</button>
+                    </div>
+                </div>
+                <div class="crm-email-sec-drawer" style="display:none; padding:12px 14px; background:#f8fafc; border-top:1px solid #e2e8f0; border-radius:0 0 6px 6px; cursor:default;">
+                    <div style="display:grid; grid-template-columns: 2fr 1fr; gap:10px; margin-bottom:10px;">
+                        <div>
+                            <label style="display:block; font-size:10.5px; font-weight:600; color:#334155; margin-bottom:2px;">Block-Titel:</label>
+                            <input type="text" class="crm-email-sec-input-title regular-text" value="${escapeHtml(title)}" style="width:100%; height:28px; font-size:11.5px;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:10.5px; font-weight:600; color:#334155; margin-bottom:2px;">Badge-Text:</label>
+                            <input type="text" class="crm-email-sec-input-badge regular-text" value="${escapeHtml(badge)}" style="width:100%; height:28px; font-size:11.5px;">
+                        </div>
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:10.5px; font-weight:600; color:#334155; margin-bottom:2px;">Block-Inhalt (HTML & Platzhalter):</label>
+                        <textarea class="crm-email-sec-input-content" rows="5" style="width:100%; font-size:11.5px; font-family:monospace; line-height:1.4;">${escapeHtml(content)}</textarea>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; padding-top:10px; margin-top:10px; border-top:1px solid #e2e8f0;">
+                        <div style="display:flex; gap:6px;">
+                            <button type="button" class="button button-primary crm-email-sec-apply-btn" style="background:#0284c7; border-color:#0284c7; font-size:11px; height:26px; line-height:24px; padding:0 10px; cursor:pointer;">✓ Übernehmen</button>
+                            <button type="button" class="button crm-email-sec-close-btn" style="font-size:11px; height:26px; line-height:24px; padding:0 8px; cursor:pointer;">Schließen</button>
+                        </div>
+                    </div>
+                </div>
+            </li>
+        `;
+
+        $manager.find('.crm-sortable-email-sections').append(newItemHtml);
+        initEmailSectionSortables();
+
+        $titleInput.val('');
+        $drawer.find('.crm-new-email-sec-badge').val('');
+        $drawer.find('.crm-new-email-sec-content').val('');
+        $drawer.slideUp(180);
+
+        if (docType && typeof window.loadEmailPreview === 'function') {
+            window.loadEmailPreview(docType, true);
+        }
+    });
+
+    // ==========================================
+    // DUAL PDF PREVIEW & TAB CONTROLLERS
+    // ==========================================
+    jQuery(document).on('click', '.crm-preview-switch-embed', function (e) {
+        e.preventDefault();
+        jQuery('.crm-preview-switch-embed').removeClass('active').css({ borderColor: '', color: '', fontWeight: 'normal' });
+        jQuery(this).addClass('active').css({ borderColor: '#7c3aed', color: '#6d28d9', fontWeight: '600' });
+        const url = jQuery(this).data('url');
+        const doc = jQuery(this).data('doc');
+        const $embed = jQuery('#x-sieben-pdf-preview embed');
+        if ($embed.length && url) {
+            $embed.attr('src', url + '?t=' + new Date().getTime());
+        }
+        if (doc) {
+            const $secBtn = jQuery('.crm-dual-sec-tab-btn[data-target="crm-dual-sec-' + doc + '"]');
+            if ($secBtn.length && !$secBtn.hasClass('active')) {
+                jQuery('.crm-dual-sec-tab-btn').removeClass('active').css({ borderColor: '', color: '', fontWeight: 'normal' });
+                $secBtn.addClass('active').css({ borderColor: '#7c3aed', color: '#6d28d9', fontWeight: '600' });
+                jQuery('.crm-dual-sec-pane').hide();
+                jQuery('#crm-dual-sec-' + doc).show();
+            }
+        }
+    });
+
+    jQuery(document).on('click', '.crm-dual-sec-tab-btn', function (e) {
+        e.preventDefault();
+        jQuery('.crm-dual-sec-tab-btn').removeClass('active').css({ borderColor: '', color: '', fontWeight: 'normal' });
+        jQuery(this).addClass('active').css({ borderColor: '#7c3aed', color: '#6d28d9', fontWeight: '600' });
+        const target = jQuery(this).data('target');
+        jQuery('.crm-dual-sec-pane').hide();
+        jQuery('#' + target).show();
+
+        const docType = (target === 'crm-dual-sec-kb') ? 'kb' : 'angebot';
+        const $switchBtn = jQuery('.crm-preview-switch-embed[data-doc="' + docType + '"]');
+        if ($switchBtn.length && !$switchBtn.hasClass('active')) {
+            jQuery('.crm-preview-switch-embed').removeClass('active').css({ borderColor: '', color: '', fontWeight: 'normal' });
+            $switchBtn.addClass('active').css({ borderColor: '#7c3aed', color: '#6d28d9', fontWeight: '600' });
+            const url = $switchBtn.data('url');
+            const $embed = jQuery('#x-sieben-pdf-preview embed');
+            if ($embed.length && url) {
+                $embed.attr('src', url + '?t=' + new Date().getTime());
+            }
+        }
+    });
+
+    // Save section order in Entry Preview Sidebar
+    jQuery(document).on('click', '.crm-pdf-sections-preview-box .crm-save-sections-btn', function (e) {
+        e.preventDefault();
+        const $btn = jQuery(this);
+        const $box = $btn.closest('.crm-pdf-sections-preview-box');
+        const $manager = $btn.closest('.crm-pdf-sections-manager');
+        const docType = $manager.data('doc') || 'angebot';
+        const entryId = $box.data('entry') || $manager.data('entry') || 0;
+        const courseId = $box.data('course') || 0;
+        const $status = $manager.find('.crm-sections-status');
+
+        const sections = crmGetHierarchicalSections($manager);
+
+        const origHtml = $btn.html();
+        $btn.prop('disabled', true).html('<span class="dashicons dashicons-update spin"></span> Wird angewendet...');
+
+        jQuery.ajax({
+            url: crmData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'crm_save_pdf_section_order',
+                nonce: crmData.nonce,
+                doc_type: docType,
+                entry_id: entryId,
+                course_id: courseId,
+                sections: sections
+            },
+            success: function (res) {
+                $btn.prop('disabled', false).html(origHtml);
+                if (res.success) {
+                    $status.text('✓ Aktualisiert!').css({ color: '#16a34a' }).fadeIn().delay(2500).fadeOut();
+                    if (res.data && res.data.pdf_url) {
+                        const freshUrl = res.data.pdf_url + '?t=' + new Date().getTime();
+                        const respDoc = res.data.doc_type;
+
+                        // 1. Update doc tab url
+                        const $docTab = jQuery('.crm-preview-switch-embed[data-doc="' + respDoc + '"]');
+                        if ($docTab.length) {
+                            $docTab.data('url', res.data.pdf_url).attr('data-url', res.data.pdf_url);
+                        }
+
+                        // 2. Update embed if active doc matches or single mode
+                        const $activeTab = jQuery('.crm-preview-switch-embed.active');
+                        const isDocActive = !$activeTab.length || ($activeTab.data('doc') === respDoc);
+                        const $embed = jQuery('#x-sieben-pdf-preview embed');
+                        if ($embed.length && isDocActive) {
+                            $embed.attr('src', freshUrl);
+                        }
+
+                        // 3. Update download link
+                        const $docDl = jQuery('a[data-doc-download="' + respDoc + '"]');
+                        if ($docDl.length) {
+                            $docDl.attr('href', res.data.pdf_url);
+                        } else {
+                            const $downloadLink = jQuery('#x-sieben-button-row a[download]');
+                            if ($downloadLink.length) {
+                                $downloadLink.attr('href', res.data.pdf_url);
+                            }
+                        }
+
+                        // 4. Update email buttons data-pdf
+                        const $emailBtns = jQuery('#x-sieben-button-row .x-sieben-email-btn');
+                        $emailBtns.each(function () {
+                            const currentPdf = jQuery(this).data('pdf') || '';
+                            if (currentPdf.indexOf(',') !== -1) {
+                                const parts = currentPdf.split(',');
+                                if (respDoc === 'angebot') {
+                                    parts[0] = res.data.pdf_url;
+                                } else if (respDoc === 'kb') {
+                                    parts[1] = res.data.pdf_url;
+                                }
+                                const combined = parts.join(',');
+                                jQuery(this).data('pdf', combined).attr('data-pdf', combined);
+                            } else {
+                                jQuery(this).data('pdf', res.data.pdf_url).attr('data-pdf', res.data.pdf_url);
+                            }
+                        });
+                    }
+                } else {
+                    const msg = (res.data && res.data.message) ? res.data.message : 'Fehler beim Speichern.';
+                    $status.text(msg).css({ color: '#dc2626' }).fadeIn().delay(3000).fadeOut();
+                }
+            },
+            error: function () {
+                $btn.prop('disabled', false).html(origHtml);
+                $status.text('Serverfehler').css({ color: '#dc2626' }).fadeIn().delay(3000).fadeOut();
+            }
+        });
+    });
+
+    // Reset section order in Entry Preview Sidebar
+    jQuery(document).on('click', '.crm-pdf-sections-preview-box .crm-reset-sections-btn', function (e) {
+        e.preventDefault();
+        const $btn = jQuery(this);
+        const $box = $btn.closest('.crm-pdf-sections-preview-box');
+        const $manager = $btn.closest('.crm-pdf-sections-manager');
+        const docType = $manager.data('doc') || 'angebot';
+        const entryId = $box.data('entry') || $manager.data('entry') || 0;
+        const courseId = $box.data('course') || 0;
+        const $parent = $manager.parent();
+
+        $btn.prop('disabled', true);
+
+        jQuery.ajax({
+            url: crmData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'crm_reset_pdf_section_order',
+                nonce: crmData.nonce,
+                doc_type: docType,
+                entry_id: entryId,
+                course_id: courseId,
+                is_sidebar: 1
+            },
+            success: function (res) {
+                $btn.prop('disabled', false);
+                if (res.success && res.data && res.data.html) {
+                    $parent.html(res.data.html);
+                    initPdfSectionSortables();
+                    if (res.data.pdf_url) {
+                        const freshUrl = res.data.pdf_url + '?t=' + new Date().getTime();
+                        const respDoc = res.data.doc_type;
+
+                        const $docTab = jQuery('.crm-preview-switch-embed[data-doc="' + respDoc + '"]');
+                        if ($docTab.length) {
+                            $docTab.data('url', res.data.pdf_url).attr('data-url', res.data.pdf_url);
+                        }
+
+                        const $activeTab = jQuery('.crm-preview-switch-embed.active');
+                        const isDocActive = !$activeTab.length || ($activeTab.data('doc') === respDoc);
+                        const $embed = jQuery('#x-sieben-pdf-preview embed');
+                        if ($embed.length && isDocActive) {
+                            $embed.attr('src', freshUrl);
+                        }
+
+                        const $docDl = jQuery('a[data-doc-download="' + respDoc + '"]');
+                        if ($docDl.length) {
+                            $docDl.attr('href', res.data.pdf_url);
+                        } else {
+                            const $downloadLink = jQuery('#x-sieben-button-row a[download]');
+                            if ($downloadLink.length) {
+                                $downloadLink.attr('href', res.data.pdf_url);
+                            }
+                        }
+
+                        const $emailBtns = jQuery('#x-sieben-button-row .x-sieben-email-btn');
+                        $emailBtns.each(function () {
+                            const currentPdf = jQuery(this).data('pdf') || '';
+                            if (currentPdf.indexOf(',') !== -1) {
+                                const parts = currentPdf.split(',');
+                                if (respDoc === 'angebot') {
+                                    parts[0] = res.data.pdf_url;
+                                } else if (respDoc === 'kb') {
+                                    parts[1] = res.data.pdf_url;
+                                }
+                                const combined = parts.join(',');
+                                jQuery(this).data('pdf', combined).attr('data-pdf', combined);
+                            } else {
+                                jQuery(this).data('pdf', res.data.pdf_url).attr('data-pdf', res.data.pdf_url);
+                            }
+                        });
+                    }
+            },
+            error: function () {
+                $btn.prop('disabled', false);
+            }
+        });
+    });
+
+    // =========================================================================
+    // CRM E-Mail Subject Editor & Mailer Subject Handlers
+    // =========================================================================
+
+    // E-Mail Subject Editor: Save template subject via AJAX
+    jQuery(document).on('click', '.crm-btn-save-subject', function (e) {
+        e.preventDefault();
+        const $btn = jQuery(this);
+        const docType = $btn.data('doc-type');
+        const $box = $btn.closest('.crm-email-subject-editor-box');
+        const $input = $box.find('.crm-email-subject-input');
+        const subjectVal = $input.val();
+        const $status = $box.find('.crm-subject-save-status');
+
+        $btn.prop('disabled', true);
+        const ajaxUrl = (typeof crmData !== 'undefined' && crmData.ajaxUrl) ? crmData.ajaxUrl : ((typeof ajaxurl !== 'undefined') ? ajaxurl : '/wp-admin/admin-ajax.php');
+        const nonce = (typeof crmData !== 'undefined' && crmData.nonce) ? crmData.nonce : '';
+
+        jQuery.ajax({
+            url: ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'crm_save_email_subject',
+                nonce: nonce,
+                doc_type: docType,
+                subject: subjectVal
+            },
+            success: function (res) {
+                $btn.prop('disabled', false);
+                if (res.success) {
+                    const msg = (res.data && res.data.message) ? res.data.message : 'Betreffzeile gespeichert.';
+                    $status.text('✓ ' + msg).css({ color: '#16a34a' }).fadeIn().delay(3000).fadeOut();
+                } else {
+                    const msg = (res.data && res.data.message) ? res.data.message : 'Fehler beim Speichern.';
+                    $status.text('✗ ' + msg).css({ color: '#dc2626' }).fadeIn().delay(4000).fadeOut();
+                }
+            },
+            error: function () {
+                $btn.prop('disabled', false);
+                $status.text('✗ Serverfehler beim Speichern').css({ color: '#dc2626' }).fadeIn().delay(4000).fadeOut();
+            }
+        });
+    });
+
+    // E-Mail Subject Editor: Reset to default template subject
+    jQuery(document).on('click', '.crm-btn-reset-subject', function (e) {
+        e.preventDefault();
+        const $btn = jQuery(this);
+        const $box = $btn.closest('.crm-email-subject-editor-box');
+        const $input = $box.find('.crm-email-subject-input');
+        const defaultSubject = $input.data('default') || '';
+        if (defaultSubject) {
+            $input.val(defaultSubject);
+            $box.find('.crm-btn-save-subject').trigger('click');
+        }
+    });
+
+    // E-Mail Subject Editor: Insert chip into settings subject input at cursor position
+    jQuery(document).on('click', '.crm-insert-subject-chip', function (e) {
+        e.preventDefault();
+        const targetId = jQuery(this).data('target');
+        const chip = jQuery(this).data('chip');
+        const el = document.getElementById(targetId);
+        if (!el) return;
+
+        const start = el.selectionStart || 0;
+        const end = el.selectionEnd || 0;
+        const val = el.value;
+        el.value = val.substring(0, start) + chip + val.substring(end);
+        el.focus();
+        el.selectionStart = el.selectionEnd = start + chip.length;
+    });
+
+    // Mailer Subject Box: Insert chip into #x_sieben_subject at cursor position
+    jQuery(document).on('click', '.crm-insert-mailer-chip', function (e) {
+        e.preventDefault();
+        const chip = jQuery(this).data('chip');
+        const el = document.getElementById('x_sieben_subject');
+        if (!el) return;
+
+        const start = el.selectionStart || 0;
+        const end = el.selectionEnd || 0;
+        const val = el.value;
+        el.value = val.substring(0, start) + chip + val.substring(end);
+        el.focus();
+        el.selectionStart = el.selectionEnd = start + chip.length;
+    });
+
 });
+
 

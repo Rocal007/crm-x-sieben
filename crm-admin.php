@@ -19,10 +19,12 @@
 
 // --- Core Setup & Helpers ---
 if (!defined('CRM_VERSION')) {
-    define('CRM_VERSION', '2.11.7');
+    define('CRM_VERSION', '2.17.5');
 }
 
 require_once __DIR__ . '/helpers/crm-status.php';
+require_once __DIR__ . '/helpers/crm-pdf-sections.php';
+require_once __DIR__ . '/helpers/crm-email-sections.php';
 require_once __DIR__ . '/crm-settings.php';
 
 /**
@@ -38,7 +40,7 @@ function crm_get_actions_config()
         'xsieben_kurszeitenbestaetigung' => ['function' => 'xsieben_kurszeitenbestaetigung_pdf', 'label' => __('Course Times Confirmation', 'custom-crm'), 'button_label' => __('KB', 'custom-crm')],
         'xsieben_offer'                  => ['function' => 'xsieben_offer_pdf', 'label' => __('Angebot', 'custom-crm'), 'button_label' => __('Angebot', 'custom-crm')],
         'xsieben_angebot_und_kurszeiten'      => ['function' => 'xsieben_angebot_kurszeiten_pdf', 'label' => __('Angebot und Kurszeiten', 'custom-crm'), 'button_label' => __('Angebot & KB', 'custom-crm')],
-        // 'xsieben_invoice'                => ['function' => 'xsieben_invoice_pdf', 'label' => __('Invoice', 'custom-crm'), 'button_label' => __('Invoice', 'custom-crm')],
+        'xsieben_invoice'                => ['function' => 'xsieben_invoice_pdf', 'label' => __('Honorarnote', 'custom-crm'), 'button_label' => __('HN', 'custom-crm')],
         // 'xsieben_mailer'                 => ['function' => 'xsieben_mailer', 'label' => __('Email', 'custom-crm'), 'button_label' => __('E-mail', 'custom-crm')],
         'xsieben_diplom'                 => ['function' => 'xsieben_diplom_pdf', 'label' => __('Diplom', 'custom-crm'), 'button_label' => __('Diplom', 'custom-crm')],
         // 'view_entry'                     => ['function' => 'xsieben_view_entry', 'label' => __('View Entry Details', 'custom-crm'), 'button_label' => __('Details', 'custom-crm')],
@@ -113,7 +115,7 @@ add_action('admin_enqueue_scripts', function ($hook) {
             wp_enqueue_script(
                 'custom-crm-admin',
                 get_template_directory_uri() . '/inc/core/crm/assets/crm-admin.js',
-                ['jquery'],
+                ['jquery', 'jquery-ui-sortable'],
                 CRM_VERSION,
                 true
             );
@@ -251,7 +253,13 @@ add_action('wp_ajax_crm_entry_action', function () {
         $refFunc  = new ReflectionFunction($function);
         $paramCount = $refFunc->getNumberOfParameters();
 
-        if ($paramCount >= 3) {
+        if ($action_key === 'xsieben_diplom') {
+            $diplom_success = isset($_POST['diplom_success']) ? sanitize_text_field(wp_unslash($_POST['diplom_success'])) : null;
+            call_user_func($function, $entry_id, $course_id, true, $diplom_success);
+        } elseif ($action_key === 'xsieben_offer' || $action_key === 'xsieben_kurszeitenbestaetigung' || $action_key === 'xsieben_teilnahmebestaetigung' || $action_key === 'xsieben_angebot_und_kurszeiten') {
+            $custom_sections = isset($_POST['custom_sections']) && is_array($_POST['custom_sections']) ? array_map('sanitize_key', $_POST['custom_sections']) : null;
+            call_user_func($function, $entry_id, $course_id, true, $custom_sections);
+        } elseif ($paramCount >= 3) {
             call_user_func($function, $entry_id, $course_id, $context);
         } else {
             call_user_func($function, $entry_id, $course_id);
@@ -282,6 +290,238 @@ add_action('wp_ajax_crm_entry_action', function () {
     } catch (Exception $e) {
         wp_send_json_error(['message' => 'Exception caught: ' . $e->getMessage()]);
     }
+});
+
+/**
+ * AJAX Handler: Speichert die geänderte Drag & Drop Abschnitt-Reihenfolge eines PDFs.
+ */
+add_action('wp_ajax_crm_save_pdf_section_order', function () {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => __('Nicht autorisierter Zugriff.', 'custom-crm')]);
+    }
+
+    $nonce = $_POST['nonce'] ?? ($_REQUEST['nonce'] ?? '');
+    $nonce_valid = false;
+    if (!empty($nonce)) {
+        if (wp_verify_nonce($nonce, 'crm_ajax_nonce') || wp_verify_nonce($nonce, 'save_crm_settings') || wp_verify_nonce($nonce, 'crm_pdf_preview_nonce')) {
+            $nonce_valid = true;
+        }
+    }
+    if (!$nonce_valid) {
+        wp_send_json_error(['message' => __('Sicherheitsprüfung fehlgeschlagen.', 'custom-crm')]);
+    }
+
+    $doc_type = sanitize_key($_POST['doc_type'] ?? 'angebot');
+    $entry_id = !empty($_POST['entry_id']) ? intval($_POST['entry_id']) : null;
+    $sections = isset($_POST['sections']) && is_array($_POST['sections']) ? $_POST['sections'] : [];
+
+    if (empty($sections)) {
+        wp_send_json_error(['message' => __('Keine Abschnitte zum Speichern übergeben.', 'custom-crm')]);
+    }
+
+    require_once __DIR__ . '/helpers/crm-pdf-sections.php';
+    $saved = crm_save_pdf_section_order($doc_type, $sections, $entry_id);
+
+    if ($saved) {
+        // Audit-Trail vermerken falls eintragsbezogen
+        if (!empty($entry_id) && function_exists('crm_add_entry_status_history')) {
+            crm_add_entry_status_history(
+                $entry_id,
+                'pdf_sections_reordered',
+                __('PDF-Abschnitte angepasst', 'custom-crm'),
+                sprintf(__('Reihenfolge der PDF-Abschnitte für %s aktualisiert.', 'custom-crm'), strtoupper($doc_type))
+            );
+        }
+
+        // Falls entry_id & course_id übergeben wurden: PDF sofort neu generieren und URL zurückgeben
+        $pdf_url = '';
+        $course_id = !empty($_POST['course_id']) ? intval($_POST['course_id']) : 0;
+        if (!empty($entry_id) && !empty($course_id)) {
+            require_once __DIR__ . '/crm-model.php';
+            try {
+                if ($doc_type === 'angebot') {
+                    require_once __DIR__ . '/pdf/offer.php';
+                    $pdf_url = xsieben_offer_pdf($entry_id, $course_id, false);
+                } elseif ($doc_type === 'kb') {
+                    require_once __DIR__ . '/pdf/kurszeitenbestaetigung.php';
+                    $pdf_url = xsieben_kurszeitenbestaetigung_pdf($entry_id, $course_id, false);
+                } elseif ($doc_type === 'tb') {
+                    require_once __DIR__ . '/pdf/teilnamebestaetigung.php';
+                    $pdf_url = xsieben_teilnahmebestaetigung_pdf($entry_id, $course_id, false);
+                } elseif ($doc_type === 'diplom') {
+                    require_once __DIR__ . '/pdf/diplom.php';
+                    $pdf_url = xsieben_diplom_pdf($entry_id, $course_id, false);
+                } elseif ($doc_type === 'invoice') {
+                    require_once __DIR__ . '/pdf/invoice.php';
+                    $pdf_url = xsieben_invoice_pdf($entry_id, $course_id, false);
+                }
+            } catch (\Throwable $e) {
+                error_log('CRM PDF Section Reorder Error: ' . $e->getMessage());
+            }
+        }
+
+        wp_send_json_success([
+            'message'   => __('PDF-Abschnittsreihenfolge erfolgreich gespeichert.', 'custom-crm'),
+            'doc_type'  => $doc_type,
+            'entry_id'  => $entry_id,
+            'course_id' => $course_id,
+            'pdf_url'   => $pdf_url,
+        ]);
+    } else {
+        wp_send_json_error(['message' => __('Fehler beim Speichern der Abschnittsreihenfolge.', 'custom-crm')]);
+    }
+});
+
+/**
+ * AJAX Handler: Setzt die Drag & Drop Abschnitt-Reihenfolge auf Systemstandard zurück.
+ */
+add_action('wp_ajax_crm_reset_pdf_section_order', function () {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => __('Nicht autorisierter Zugriff.', 'custom-crm')]);
+    }
+
+    $nonce = $_POST['nonce'] ?? ($_REQUEST['nonce'] ?? '');
+    $nonce_valid = false;
+    if (!empty($nonce)) {
+        if (wp_verify_nonce($nonce, 'crm_ajax_nonce') || wp_verify_nonce($nonce, 'save_crm_settings') || wp_verify_nonce($nonce, 'crm_pdf_preview_nonce')) {
+            $nonce_valid = true;
+        }
+    }
+    if (!$nonce_valid) {
+        wp_send_json_error(['message' => __('Sicherheitsprüfung fehlgeschlagen.', 'custom-crm')]);
+    }
+
+    $doc_type   = sanitize_key($_POST['doc_type'] ?? 'angebot');
+    $entry_id   = !empty($_POST['entry_id']) ? intval($_POST['entry_id']) : null;
+    $is_sidebar = !empty($_POST['is_sidebar']);
+
+    require_once __DIR__ . '/helpers/crm-pdf-sections.php';
+    crm_reset_pdf_section_order($doc_type, $entry_id);
+
+    ob_start();
+    crm_render_pdf_sections_manager($doc_type, $entry_id, $is_sidebar);
+    $html = ob_get_clean();
+
+    $pdf_url = '';
+    $course_id = !empty($_POST['course_id']) ? intval($_POST['course_id']) : 0;
+    if (!empty($entry_id) && !empty($course_id)) {
+        require_once __DIR__ . '/crm-model.php';
+        try {
+            if ($doc_type === 'angebot') {
+                require_once __DIR__ . '/pdf/offer.php';
+                $pdf_url = xsieben_offer_pdf($entry_id, $course_id, false);
+            } elseif ($doc_type === 'kb') {
+                require_once __DIR__ . '/pdf/kurszeitenbestaetigung.php';
+                $pdf_url = xsieben_kurszeitenbestaetigung_pdf($entry_id, $course_id, false);
+            } elseif ($doc_type === 'tb') {
+                require_once __DIR__ . '/pdf/teilnamebestaetigung.php';
+                $pdf_url = xsieben_teilnahmebestaetigung_pdf($entry_id, $course_id, false);
+            } elseif ($doc_type === 'diplom') {
+                require_once __DIR__ . '/pdf/diplom.php';
+                $pdf_url = xsieben_diplom_pdf($entry_id, $course_id, false);
+            } elseif ($doc_type === 'invoice') {
+                require_once __DIR__ . '/pdf/invoice.php';
+                $pdf_url = xsieben_invoice_pdf($entry_id, $course_id, false);
+            }
+        } catch (\Throwable $e) {
+            error_log('CRM PDF Reset Section Reorder Error: ' . $e->getMessage());
+        }
+    }
+
+    wp_send_json_success([
+        'message'   => __('Reihenfolge erfolgreich auf Standard zurückgesetzt.', 'custom-crm'),
+        'html'      => $html,
+        'doc_type'  => $doc_type,
+        'course_id' => $course_id,
+        'pdf_url'   => $pdf_url,
+    ]);
+});
+
+/**
+ * AJAX Handler: Speichert die geänderte Drag & Drop Abschnitt-Reihenfolge einer E-Mail-Vorlage.
+ */
+add_action('wp_ajax_crm_save_email_section_order', function () {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => __('Nicht autorisierter Zugriff.', 'custom-crm')]);
+    }
+
+    $nonce = $_POST['nonce'] ?? ($_REQUEST['nonce'] ?? '');
+    $nonce_valid = false;
+    if (!empty($nonce)) {
+        if (wp_verify_nonce($nonce, 'crm_ajax_nonce') || wp_verify_nonce($nonce, 'save_crm_settings') || wp_verify_nonce($nonce, 'crm_email_preview_nonce')) {
+            $nonce_valid = true;
+        }
+    }
+    if (!$nonce_valid) {
+        wp_send_json_error(['message' => __('Sicherheitsprüfung fehlgeschlagen.', 'custom-crm')]);
+    }
+
+    $doc_type = sanitize_key($_POST['doc_type'] ?? 'angebot');
+    $entry_id = !empty($_POST['entry_id']) ? intval($_POST['entry_id']) : null;
+    $sections = isset($_POST['sections']) && is_array($_POST['sections']) ? $_POST['sections'] : [];
+
+    if (empty($sections)) {
+        wp_send_json_error(['message' => __('Keine Abschnitte zum Speichern übergeben.', 'custom-crm')]);
+    }
+
+    require_once __DIR__ . '/helpers/crm-email-sections.php';
+    $saved = crm_save_email_section_order($doc_type, $sections, $entry_id);
+
+    if ($saved) {
+        if (!empty($entry_id) && function_exists('crm_add_entry_status_history')) {
+            crm_add_entry_status_history(
+                $entry_id,
+                'email_sections_reordered',
+                __('E-Mail-Abschnitte angepasst', 'custom-crm'),
+                sprintf(__('Reihenfolge der E-Mail-Abschnitte für %s aktualisiert.', 'custom-crm'), strtoupper($doc_type))
+            );
+        }
+
+        wp_send_json_success([
+            'message'  => __('E-Mail-Abschnittsreihenfolge erfolgreich gespeichert.', 'custom-crm'),
+            'doc_type' => $doc_type,
+            'entry_id' => $entry_id,
+        ]);
+    } else {
+        wp_send_json_error(['message' => __('Fehler beim Speichern der E-Mail-Abschnittsreihenfolge.', 'custom-crm')]);
+    }
+});
+
+/**
+ * AJAX Handler: Setzt die Drag & Drop E-Mail-Abschnitte auf Systemstandard zurück.
+ */
+add_action('wp_ajax_crm_reset_email_section_order', function () {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => __('Nicht autorisierter Zugriff.', 'custom-crm')]);
+    }
+
+    $nonce = $_POST['nonce'] ?? ($_REQUEST['nonce'] ?? '');
+    $nonce_valid = false;
+    if (!empty($nonce)) {
+        if (wp_verify_nonce($nonce, 'crm_ajax_nonce') || wp_verify_nonce($nonce, 'save_crm_settings') || wp_verify_nonce($nonce, 'crm_email_preview_nonce')) {
+            $nonce_valid = true;
+        }
+    }
+    if (!$nonce_valid) {
+        wp_send_json_error(['message' => __('Sicherheitsprüfung fehlgeschlagen.', 'custom-crm')]);
+    }
+
+    $doc_type   = sanitize_key($_POST['doc_type'] ?? 'angebot');
+    $entry_id   = !empty($_POST['entry_id']) ? intval($_POST['entry_id']) : null;
+    $is_sidebar = !empty($_POST['is_sidebar']);
+
+    require_once __DIR__ . '/helpers/crm-email-sections.php';
+    crm_reset_email_section_order($doc_type, $entry_id);
+
+    ob_start();
+    crm_render_email_sections_manager($doc_type, $entry_id, $is_sidebar);
+    $html = ob_get_clean();
+
+    wp_send_json_success([
+        'message'  => __('E-Mail-Abschnitte erfolgreich auf Standard zurückgesetzt.', 'custom-crm'),
+        'html'     => $html,
+        'doc_type' => $doc_type,
+    ]);
 });
 
 // --- Admin Page Rendering ---

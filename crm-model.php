@@ -26,6 +26,8 @@ class CRM_Model
     public $nachname;
     public $email;
     public $svr;
+    public $customer_company;
+    public $customer_type;
 
     // Eigenschaften für getrennte Adressfelder
     public $street;
@@ -38,6 +40,7 @@ class CRM_Model
     public $bankverbindung;
     public $texte_fur_diplom_links;
     public $texte_fur_diplom_rechts;
+    public $diplom_success;
     public $termine_link;
     public $email_footer;
     public $kursgebuehr_html;
@@ -50,6 +53,21 @@ class CRM_Model
     public $anmeldebestaetigung_email;
     public $anmeldung_email;
     public $diplom_email;
+
+    // Standardisierte Platzhalter & Aliase für E-Mails und PDFs
+    public $kurstitel;
+    public $kurstitel_short;
+    public $startdatum;
+    public $enddatum;
+    public $uhrzeit;
+    public $le;
+    public $schulungsort;
+    public $ort;
+    public $preis;
+    public $gesamtpreis;
+    public $kunden_firma;
+    public $telefon;
+    public $datum;
 
     // Demographie, Firmendaten & CI-Stammdaten
     public $company_name;
@@ -95,9 +113,23 @@ class CRM_Model
      * @param int $post_id Die ID des Beitrags.
      * @param int|null $entry_id The ID of the WPForms entry (optional).
      */
-    public function __construct(int $post_id, ?int $entry_id = null)
+    public function __construct($post_id = 0, $entry_id = null)
     {
-        $this->post_id = $post_id;
+        $this->post_id = absint($post_id);
+        $entry_id      = !empty($entry_id) ? absint($entry_id) : null;
+
+        // Fallback: Falls keine gültige Kurs-ID übergeben wurde, ersten publizierten Kurs als Muster wählen
+        if ($this->post_id <= 0) {
+            $fallback_courses = get_posts([
+                'post_type'      => 'courses',
+                'posts_per_page' => 1,
+                'post_status'    => 'publish',
+            ]);
+            if (!empty($fallback_courses)) {
+                $this->post_id = $fallback_courses[0]->ID;
+            }
+        }
+        $post_id = $this->post_id;
 
         // WP-Forms Entry
         $this->entry_data = $this->get_wpforms_entry_data($entry_id);
@@ -108,8 +140,10 @@ class CRM_Model
 
 
         // Basic Fields
-        $this->title = esc_html(get_the_title($post_id));
-        $this->titel_short = get_field('title_im_slider', $post_id);
+        $raw_title = get_the_title($post_id);
+        $this->title = trim(wp_strip_all_tags(html_entity_decode(html_entity_decode($raw_title, ENT_QUOTES, 'UTF-8'), ENT_QUOTES, 'UTF-8')));
+        $raw_short = get_field('title_im_slider', $post_id);
+        $this->titel_short = !empty($raw_short) ? trim(wp_strip_all_tags(html_entity_decode(html_entity_decode($raw_short, ENT_QUOTES, 'UTF-8'), ENT_QUOTES, 'UTF-8'))) : '';
         $this->permalink = get_permalink($post_id);
         // Persistent snapshot dates: Use frozen inquiry dates if available, otherwise fallback to course post meta
         $snapshot_dates = ($entry_id && function_exists('crm_get_entry_course_dates')) ? crm_get_entry_course_dates($entry_id) : null;
@@ -189,6 +223,35 @@ class CRM_Model
 
         $this->load_company_settings();
         $this->load_icons();
+
+        // Kurszeiten / Uhrzeit berechnen
+        $uhr_von = trim((string)get_post_meta($post_id, 'uhrzeit', true));
+        $uhr_bis = trim((string)get_post_meta($post_id, 'uhrzeit_ende', true));
+        if (!empty($uhr_von) && !empty($uhr_bis)) {
+            $this->uhrzeit = $uhr_von . ' – ' . $uhr_bis . ' Uhr';
+        } elseif (!empty($uhr_von)) {
+            $this->uhrzeit = $uhr_von . ' Uhr';
+        } elseif (!empty($this->kurszeiten) && is_array($this->kurszeiten)) {
+            $first_time = reset($this->kurszeiten);
+            $this->uhrzeit = !empty($first_time) ? $first_time : '09:00 – 17:00 Uhr';
+        } else {
+            $this->uhrzeit = '09:00 – 17:00 Uhr';
+        }
+
+        // Standardisierte Platzhalter & Aliase (vor get_crm_field() initialisieren!)
+        $this->kurstitel       = $this->title;
+        $this->kurstitel_short = $this->titel_short;
+        $this->startdatum      = $this->start_datum;
+        $this->enddatum        = $this->end_datum;
+        $this->le              = $this->anzahl_le;
+        $this->schulungsort    = !empty($this->location_wien) ? $this->location_wien : 'Rochusgasse 6, 1030 Wien';
+        $this->ort             = $this->schulungsort;
+        $this->preis           = $this->preis_netto;
+        $this->gesamtpreis     = $this->preis_brutto;
+        $this->kunden_firma    = $this->customer_company;
+        $this->telefon         = !empty($this->company_phone) ? $this->company_phone : '0800 700 170';
+        $this->datum           = date('d.m.Y');
+
         $this->signatur = $this->get_signature_html();
         $this->beratung_email = $this->get_crm_field('Beratung E-Mail Text');
         $this->buchung_email = $this->get_crm_field('Anmeldung Buchung E-Mail Text');
@@ -212,6 +275,20 @@ class CRM_Model
         $this->nachname = $this->get_wpforms_field_by_id(89);
         $this->email = $this->get_wpforms_field_by_id(93);
         $this->svr = $this->get_wpforms_field_by_id(29);
+        $this->customer_company = trim((string)$this->get_wpforms_field_by_id(25));
+        $this->customer_type    = trim((string)$this->get_wpforms_field_by_id(3));
+
+        // Fallback: Falls Feld 25 leer ist, im gesamten Entry nach Feldern wie 'firma' suchen
+        if (empty($this->customer_company) && !empty($this->entry_data) && is_array($this->entry_data)) {
+            foreach ($this->entry_data as $fld) {
+                if (!empty($fld['name']) && (stripos($fld['name'], 'firma') !== false || stripos($fld['name'], 'unternehmung') !== false)) {
+                    if (!empty($fld['value']) && is_string($fld['value']) && stripos($fld['name'], 'privat') === false) {
+                        $this->customer_company = trim($fld['value']);
+                        break;
+                    }
+                }
+            }
+        }
 
         if ($this->anrede === 'Herr') {
             $this->salutation = "Sehr geehrter Herr";
@@ -220,6 +297,112 @@ class CRM_Model
         } else {
             $this->salutation = "Sehr geehrte(r) Frau/Herr";
         }
+    }
+
+    /**
+     * Formatiert die Empfängeradresse normgerecht nach DIN 5008 / ÖNORM A 1080.
+     * Unterstützt Privatpersonen, akademische Titel sowie Unternehmen (Variante A Geschäftlich vs. Variante B Vertraulich).
+     *
+     * @param string $variant 'A' (Standard: Geschäftlich, Firma zuerst) oder 'B' (Persönlich/Vertraulich, Person zuerst)
+     * @param bool $as_html Wenn true, wird HTML mit <br> zurückgegeben, sonst Plaintext mit \n
+     * @return string
+     */
+    public function format_postal_address(string $variant = 'A', bool $as_html = true): string
+    {
+        $lines = [];
+
+        // 1. Postalischer Akkusativ für Anrede
+        $salutation_clean = trim((string)($this->anrede ?? ''));
+        $postal_salutation = '';
+        if (strcasecmp($salutation_clean, 'Herr') === 0 || strcasecmp($salutation_clean, 'Herrn') === 0) {
+            $postal_salutation = 'Herrn';
+        } elseif (strcasecmp($salutation_clean, 'Frau') === 0) {
+            $postal_salutation = 'Frau';
+        } elseif (strcasecmp($salutation_clean, 'Familie') === 0) {
+            $postal_salutation = 'Familie';
+        } elseif (strcasecmp($salutation_clean, 'Eheleute') === 0) {
+            $postal_salutation = 'Eheleute';
+        } elseif (strcasecmp($salutation_clean, 'Firma') === 0) {
+            $postal_salutation = '';
+        } else {
+            $postal_salutation = $salutation_clean;
+        }
+
+        $title_clean    = trim((string)($this->titel ?? ''));
+        $vorname_clean  = trim((string)($this->vorname ?? ''));
+        $nachname_clean = trim((string)($this->nachname ?? ''));
+        $firma_clean    = trim((string)($this->customer_company ?? ''));
+
+        // Namenszusammensetzung (Vermeidung von Dopplungen falls Titel bereits im Namen steht)
+        $name_parts = [];
+        if (!empty($vorname_clean)) $name_parts[] = $vorname_clean;
+        if (!empty($nachname_clean)) $name_parts[] = $nachname_clean;
+        $full_name = implode(' ', $name_parts);
+
+        $person_line = '';
+        if (!empty($full_name)) {
+            if (!empty($title_clean) && stripos($full_name, $title_clean) === false) {
+                // Mit akademischem Titel: Anrede + Titel + Name in einer Zeile (DIN 5008 / ÖNORM)
+                $person_line = trim($postal_salutation . ' ' . $title_clean . ' ' . $full_name);
+            } else {
+                $person_line = $full_name;
+            }
+        }
+
+        if (!empty($firma_clean)) {
+            // Fall 4: Firmen und Unternehmen
+            $company_person = trim($postal_salutation . ' ' . (!empty($title_clean) && stripos($full_name, $title_clean) === false ? $title_clean . ' ' : '') . $full_name);
+            if (strtoupper($variant) === 'B') {
+                // Variante B: Persönlich/Vertraulich (Person zuerst, Firma darunter)
+                if (!empty($company_person)) $lines[] = $company_person;
+                $lines[] = $firma_clean;
+            } else {
+                // Variante A: Geschäftlich (Firma in der ersten Zeile, Ansprechpartner darunter)
+                $lines[] = $firma_clean;
+                if (!empty($company_person)) $lines[] = $company_person;
+            }
+        } else {
+            // Fall 2 & 3: Privatpersonen
+            if (!empty($title_clean) && !empty($person_line)) {
+                // Mit Titel: z. B. "Frau Dr. Martina Muster" bzw. "Herrn Prof. Dr. Max Muster"
+                $lines[] = $person_line;
+            } else {
+                // Ohne Titel:
+                // Zeile 1: Anrede (z. B. "Herrn" oder "Frau" oder "Familie" oder "Eheleute")
+                // Zeile 2: Name
+                if (!empty($postal_salutation)) {
+                    $lines[] = $postal_salutation;
+                }
+                if (!empty($person_line)) {
+                    $lines[] = $person_line;
+                }
+            }
+        }
+
+        // Straße und Hausnummer
+        $street_full = trim(($this->street ?? '') . ' ' . ($this->house_number ?? ''));
+        if (!empty($street_full)) {
+            $lines[] = $street_full;
+        }
+
+        // PLZ und Ort
+        $city_parts = [];
+        if (!empty($this->zip_code)) $city_parts[] = trim((string)$this->zip_code);
+        if (!empty($this->city))     $city_parts[] = trim((string)$this->city);
+        if (!empty($city_parts)) {
+            $lines[] = implode(' ', $city_parts);
+        }
+
+        // Land (nur wenn Ausland und nicht Österreich)
+        $country_clean = trim((string)($this->country ?? ''));
+        if (!empty($country_clean) && !in_array(strtoupper($country_clean), ['AT', 'AUT', 'ÖSTERREICH', 'OESTERREICH'], true)) {
+            $lines[] = strtoupper($country_clean);
+        }
+
+        if ($as_html) {
+            return implode("<br>\n", array_map('htmlspecialchars', $lines));
+        }
+        return implode("\n", $lines);
     }
 
     /**
@@ -236,79 +419,189 @@ class CRM_Model
         if (empty($fields) || !is_array($fields)) {
             return '';
         }
-        // Case-insensitive search remains the same
-        $index = array_search(
-            strtolower($title),
-            array_map('strtolower', array_column($fields, 'title'))
-        );
-        // Check if the field was found
-        if ($index !== false && isset($fields[$index]['content'])) {
-            $content = $fields[$index]['content'];
-            // --- Add the parsing step here ---
-            $content = $this->parse_string_with_data($content);
-            // --- End of parsing step ---
-            // Format content for emails using wpautop and do_shortcode directly.
-            // We intentionally do NOT use apply_filters('the_content') here because global theme
-            // filters (such as in functions.php) strip domain names from image and link URLs,
-            // and cookie consent plugins mangle <img> src attributes into consent attributes.
-            $content = wpautop($content);
-            $content = do_shortcode($content);
-            if (function_exists('crm_prepare_email_html_for_sending')) {
-                $content = crm_prepare_email_html_for_sending($content);
+
+        $target = strtolower(trim($title));
+        foreach ($fields as $field) {
+            if (isset($field['title']) && strtolower(trim($field['title'])) === $target) {
+                $content = $field['content'] ?? '';
+                // --- Add the parsing step here ---
+                $content = $this->parse_string_with_data($content);
+                // --- End of parsing step ---
+                // Format content for emails using wpautop and do_shortcode directly.
+                // We intentionally do NOT use apply_filters('the_content') here because global theme
+                // filters (such as in functions.php) strip domain names from image and link URLs,
+                // and cookie consent plugins mangle <img> src attributes into consent attributes.
+                $content = wpautop($content);
+                $content = do_shortcode($content);
+                if (function_exists('crm_prepare_email_html_for_sending')) {
+                    $content = crm_prepare_email_html_for_sending($content);
+                }
+                return $content;
             }
-            return $content;
         }
+
         // If not found, return an empty string
         return '';
     }
 
-    // Inside the CRM_Model class
+    /**
+     * Ersetzt dynamische CRM-Platzhalter, Kursdaten, Personenmerkmale und Komponenten in einem Text.
+     * Führt bis zu 3 Ersetzungsrunden durch, um verschachtelte Platzhalter (z.B. {signatur_email} enthält {company_name})
+     * vollständig aufzulösen.
+     *
+     * @param string $template_string
+     * @return string
+     */
     public function parse_string_with_data(string $template_string): string
     {
-        // Use preg_replace_callback to find all {variable} placeholders.
-        return preg_replace_callback('/\{([a-zA-Z0-9_]+)\}/', function ($matches) {
-            $key = $matches[1];
-            if ($key === 'current_date') {
-                return date('d.m.Y');
-            }
-            if ($key === 'diplom_success') {
-                $succ = $this->get_diplom_success();
-                return !empty($succ) ? 'mit ' . esc_html($succ) . ' ' : '';
-            }
-            // Check if the property exists in the current object
-            if (property_exists($this, $key)) {
-                // Return the property value. Use a ternary operator to handle non-string types gracefully.
-                return is_scalar($this->$key) ? (string)$this->$key : '';
+        if (empty($template_string)) {
+            return '';
+        }
+
+        $max_passes = 3;
+        $current = $template_string;
+
+        for ($pass = 0; $pass < $max_passes; $pass++) {
+            if (strpos($current, '{') === false) {
+                break;
             }
 
-            // German & convenient aliases for company/CI data
-            $aliases = [
-                'schulungsinstitut'  => 'company_name',
-                'institut_name'      => 'company_name',
-                'institut_kurz'      => 'company_short_name',
-                'institut_adresse'   => 'company_address',
-                'institut_telefon'   => 'company_phone',
-                'institut_email'     => 'company_email',
-                'institut_website'   => 'company_website',
-                'institut_uid'       => 'company_uid',
-                'institut_fn'        => 'company_fn',
-                'institut_gericht'   => 'company_court',
-                'institut_bank'      => 'company_bank',
-                'institut_logo'      => 'company_logo',
-                'schulungsort_wien'  => 'location_wien',
-                'standort_wien'      => 'location_wien',
-                'geschaeftsfuehrung' => 'company_management',
-            ];
-            if (isset($aliases[$key])) {
-                $prop = $aliases[$key];
-                if (property_exists($this, $prop)) {
-                    return is_scalar($this->$prop) ? (string)$this->$prop : '';
+            $prev = $current;
+            $current = preg_replace_callback('/\{([a-zA-Z0-9_\-\.]+)\}/', function ($matches) {
+                $key = strtolower(trim($matches[1]));
+
+                // 1. Spezielle dynamische Werte
+                if ($key === 'current_date' || $key === 'datum') {
+                    return date('d.m.Y');
                 }
-            }
+                if ($key === 'diplom_success') {
+                    $succ = $this->get_diplom_success();
+                    return !empty($succ) ? 'mit ' . esc_html($succ) . ' ' : '';
+                }
+                if ($key === 'kurstyp_upper') {
+                    return mb_strtoupper((string)($this->kurstyp ?: 'Lehrgang'), 'UTF-8');
+                }
+                if ($key === 'kurstyp_lower') {
+                    return mb_strtolower((string)($this->kurstyp ?: 'lehrgang'), 'UTF-8');
+                }
+                if ($key === 'hat_den_kurstyp' || $key === 'kurstyp_phrase') {
+                    return function_exists('crm_get_diplom_kurstyp_phrase')
+                        ? crm_get_diplom_kurstyp_phrase($this->kurstyp)
+                        : ('HAT DEN ' . mb_strtoupper((string)($this->kurstyp ?: 'LEHRGANG'), 'UTF-8'));
+                }
 
-            // If the property doesn't exist, return the original placeholder to avoid breaking the template.
-            return $matches[0];
-        }, $template_string);
+                // 2. Direkte Objekt-Eigenschaften prüfen
+                if (property_exists($this, $key) && is_scalar($this->$key)) {
+                    return (string)$this->$key;
+                }
+
+                // 3. Umfassende Aliase (Kursdaten, Personen, Firma & CI)
+                $aliases = [
+                    // Kurs- und Veranstaltungsdaten
+                    'kurstitel'          => 'title',
+                    'kurstitel_short'    => 'titel_short',
+                    'kurs_titel'         => 'title',
+                    'startdatum'         => 'start_datum',
+                    'start_datum'        => 'start_datum',
+                    'enddatum'           => 'end_datum',
+                    'end_datum'          => 'end_datum',
+                    'uhrzeit'            => 'uhrzeit',
+                    'kurszeiten'         => 'uhrzeit',
+                    'zeiten'             => 'uhrzeit',
+                    'le'                 => 'anzahl_le',
+                    'anzahl_le'          => 'anzahl_le',
+                    'lehreinheiten'      => 'anzahl_le',
+                    'preis'              => 'preis_netto',
+                    'preis_netto'        => 'preis_netto',
+                    'preis_brutto'       => 'preis_brutto',
+                    'gesamtpreis'        => 'preis_brutto',
+                    'le_single'          => 'le_single',
+                    'schulungsort'       => 'location_wien',
+                    'ort'                => 'location_wien',
+                    'standort_wien'      => 'location_wien',
+                    'schulungsort_wien'  => 'location_wien',
+                    'dauer'              => 'anzahl_le',
+                    'expire'             => 'expire',
+
+                    // Personen- & Kundendaten
+                    'kunden_firma'       => 'customer_company',
+                    'firma'              => 'customer_company',
+                    'anrede_brief'       => 'salutation',
+                    'telefon'            => 'company_phone',
+
+                    // Instituts- & Firmendaten
+                    'schulungsinstitut'  => 'company_name',
+                    'institut_name'      => 'company_name',
+                    'institut_kurz'      => 'company_short_name',
+                    'institut_adresse'   => 'company_address',
+                    'institut_telefon'   => 'company_phone',
+                    'institut_email'     => 'company_email',
+                    'institut_website'   => 'company_website',
+                    'institut_uid'       => 'company_uid',
+                    'institut_fn'        => 'company_fn',
+                    'institut_gericht'   => 'company_court',
+                    'institut_bank'      => 'company_bank',
+                    'institut_logo'      => 'company_logo',
+                    'geschaeftsfuehrung' => 'company_management',
+                    'institutsleiter'    => 'company_management',
+                ];
+
+                if (isset($aliases[$key])) {
+                    $prop = $aliases[$key];
+                    if (property_exists($this, $prop) && is_scalar($this->$prop)) {
+                        return (string)$this->$prop;
+                    }
+                }
+
+                // 4. E-Mail-Komponenten (Bausteine) auflösen
+                $component_map = [
+                    'signatur_email'          => 'E-Mail Signatur',
+                    'signatur'                => 'E-Mail Signatur',
+                    'email_footer'            => 'E-Mail-Footer',
+                    'footer'                  => 'E-Mail-Footer',
+                    'buchung_email'           => 'Anmeldung Buchung E-Mail Text',
+                    'agb_claim'               => 'AGB text',
+                    'bankverbindung'          => 'Bankverbindung',
+                    'angebot_hinweis'         => 'Angebot E-Mail Hinweis',
+                    'angebot_ps'              => 'Angebot PS',
+                    'durchfuehrungs_garantie' => 'Durchführungs Garantie',
+                    'anhang_2'                => 'Anhang 2 | Exklusive Zusatzleistungen',
+                    'teilnahme_fee'           => 'Teilnahme_Fee',
+                ];
+
+                if (isset($component_map[$key])) {
+                    $comp_content = $this->get_crm_field($component_map[$key]);
+                    if ($comp_content !== '') {
+                        return $comp_content;
+                    }
+                }
+
+                // 5. Dynamische Prüfung in crm_custom_fields für alle benutzerdefinierten Bausteine
+                $custom_fields = get_option('crm_custom_fields', []);
+                if (is_array($custom_fields)) {
+                    foreach ($custom_fields as $cf) {
+                        if (empty($cf['title'])) {
+                            continue;
+                        }
+                        if (function_exists('crm_get_component_placeholder_for_title')) {
+                            $token = trim(crm_get_component_placeholder_for_title($cf['title']), '{}');
+                            if (strcasecmp($token, $key) === 0) {
+                                return !empty($cf['content']) ? wp_kses_post($cf['content']) : '';
+                            }
+                        }
+                    }
+                }
+
+                // Falls kein passender Wert gefunden wird, Platzhalter unverändert beibehalten
+                return $matches[0];
+            }, $current);
+
+            if ($current === $prev) {
+                break;
+            }
+        }
+
+        return $current;
     }
 
     /**
@@ -1130,21 +1423,32 @@ class CRM_Model
 
     private function get_coursetype(): string
     {
-        $cat_slug_custom = 'LEHRGANG';
-        if (has_term('Lehrgang', 'coursecategory', $this->post_id)) {
-            $cat_slug_custom = 'Lehrgang';
-        } elseif (has_term('Seminar', 'coursecategory', $this->post_id)) {
-            $cat_slug_custom = 'Seminar';
-        } elseif (has_term('Crashkurs', 'coursecategory', $this->post_id)) {
-            $cat_slug_custom = 'Crashkurs';
-        } elseif (has_term('Bundle', 'coursecategory', $this->post_id)) {
-            $cat_slug_custom = 'Bundle';
-        } elseif (has_term('eLearning', 'coursecategory', $this->post_id)) {
-            $cat_slug_custom = 'eLearning';
-        } elseif (has_term('Blended Learning', 'coursecategory', $this->post_id)) {
-            $cat_slug_custom = 'Blended-learning';
+        // 1. Priorität: Taxonomie 'coursetype'
+        $types = get_the_terms($this->post_id, 'coursetype');
+        if (!empty($types) && !is_wp_error($types)) {
+            $first_type = reset($types);
+            if (!empty($first_type->name)) {
+                return $first_type->name;
+            }
         }
-        return $cat_slug_custom;
+
+        // 2. Fallback: Taxonomie 'coursecategory'
+        if (has_term('Lehrgang', 'coursecategory', $this->post_id)) {
+            return 'Lehrgang';
+        } elseif (has_term('Seminar', 'coursecategory', $this->post_id)) {
+            return 'Seminar';
+        } elseif (has_term('Crashkurs', 'coursecategory', $this->post_id)) {
+            return 'Crashkurs';
+        } elseif (has_term('Bundle', 'coursecategory', $this->post_id)) {
+            return 'Bundle';
+        } elseif (has_term('eLearning', 'coursecategory', $this->post_id)) {
+            return 'eLearning';
+        } elseif (has_term('Blended Learning', 'coursecategory', $this->post_id)) {
+            return 'Blended Learning';
+        } elseif (has_term('Coaching', 'coursecategory', $this->post_id)) {
+            return 'Coaching';
+        }
+        return 'Lehrgang';
     }
 
     private function get_garantie_html(): string
@@ -1491,23 +1795,47 @@ class CRM_Model
 
     public function get_diplom_success(): ?string
     {
-        // Hole den Wert aus dem Feld 101
-        $status_string = $this->get_wpforms_field_by_id(101);
+        if (!empty($this->diplom_success)) {
+            return $this->diplom_success;
+        }
+
+        // Hole den Wert aus WPForms Feld 100 (Abschluss Erfolg) mit Fallback auf 101
+        $status_string = $this->get_wpforms_field_by_id(100);
+        if (empty($status_string)) {
+            $status_string = $this->get_wpforms_field_by_id(101);
+        }
 
         if (empty($status_string)) {
             return null;
         }
 
         // Nur den ersten nicht-leeren Eintrag nehmen
-        $lines = explode("\n", $status_string);
+        $lines = explode("\n", (string)$status_string);
+        $raw_val = '';
         foreach ($lines as $line) {
             $line = trim($line);
             if (!empty($line)) {
-                return $line;
+                $raw_val = $line;
+                break;
             }
         }
 
-        return null;
+        if (empty($raw_val)) {
+            return null;
+        }
+
+        $lower = mb_strtolower($raw_val, 'UTF-8');
+        if (strpos($lower, 'ausgezeichnet') !== false) {
+            return 'mit ausgezeichnetem Erfolg';
+        } elseif (strpos($lower, 'sehr gut') !== false) {
+            return 'mit sehr gutem Erfolg';
+        } elseif (strpos($lower, 'gut') !== false) {
+            return 'mit gutem Erfolg';
+        } elseif (strpos($lower, 'erfolg') !== false) {
+            return 'erfolgreich';
+        }
+
+        return $raw_val;
     }
 
     /**

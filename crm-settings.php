@@ -5,13 +5,16 @@
  * Standalone CRM Configuration module for WordPress.
  * Manages Email templates, PDF snippets, and general CRM settings.
  *
- * @version 2.10.0
+ * @version 2.17.0
  */
 
 // Exit if accessed directly.
 if (!defined('ABSPATH')) {
     exit;
 }
+
+require_once __DIR__ . '/helpers/crm-pdf-sections.php';
+require_once __DIR__ . '/helpers/crm-email-sections.php';
 
 /**
  * Determine the category of a custom field ('email' or 'pdf').
@@ -42,6 +45,112 @@ function crm_get_field_category(array $field): string
     }
 
     return 'pdf';
+}
+
+/**
+ * Bestimmt, ob ein E-Mail-Feld eine vollständige Vorlage ('full_email')
+ * oder eine wiederverwendbare Komponente ('component') ist.
+ *
+ * @param string $title
+ * @param array $field
+ * @return string 'full_email'|'component'
+ */
+function crm_get_email_field_type(string $title, array $field = []): string
+{
+    if (!empty($field['email_type']) && in_array($field['email_type'], ['full_email', 'component'], true)) {
+        return $field['email_type'];
+    }
+
+    $t = strtolower(trim($title));
+
+    // Schlüsselwörter für wiederverwendbare Komponenten (Signatur, Footer, Buchung, AGB, Bank etc.)
+    $component_keywords = [
+        'signatur',
+        'footer',
+        'buchung',
+        'hinweis',
+        'ps',
+        'p.s.',
+        'agb',
+        'bank',
+        'garantie',
+        'fee',
+        'anhang',
+        'klausel',
+        'baustein',
+        'komponente',
+        'zusatzleistung',
+    ];
+
+    foreach ($component_keywords as $ck) {
+        if (strpos($t, $ck) !== false) {
+            return 'component';
+        }
+    }
+
+    // Schlüsselwörter für gesamte Master-E-Mails
+    if (
+        strpos($t, 'e-mail angebot') !== false ||
+        strpos($t, 'e-mail anmelde') !== false ||
+        strpos($t, 'e-mail kursantritt') !== false ||
+        strpos($t, 'e-mail kurszeit') !== false ||
+        strpos($t, 'e-mail teilnahme') !== false ||
+        strpos($t, 'e-mail diplom') !== false ||
+        strpos($t, 'e-mail honorarnote') !== false ||
+        strpos($t, 'e-mail rechnung') !== false
+    ) {
+        return 'full_email';
+    }
+
+    // Fallback: Wenn der Titel mit "e-mail " beginnt, eher vollständige Mail, sonst Komponente
+    if (strpos($t, 'e-mail') === 0 || strpos($t, 'email') === 0) {
+        return 'full_email';
+    }
+
+    return 'component';
+}
+
+/**
+ * Ermittelt den Platzhalter-Code für eine E-Mail-Komponente zur Verwendung in gesamten E-Mails.
+ *
+ * @param string $title
+ * @return string
+ */
+function crm_get_component_placeholder_for_title(string $title): string
+{
+    $t = strtolower(trim($title));
+    $map = [
+        'e-mail signatur'                   => '{signatur_email}',
+        'signatur'                          => '{signatur_email}',
+        'e-mail-footer'                     => '{email_footer}',
+        'e-mail footer'                     => '{email_footer}',
+        'footer'                            => '{email_footer}',
+        'anmeldung buchung e-mail text'     => '{buchung_email}',
+        'buchung e-mail text'               => '{buchung_email}',
+        'buchung e-mail'                    => '{buchung_email}',
+        'buchungshinweis'                   => '{buchung_email}',
+        'agb text'                          => '{agb_claim}',
+        'agb-klausel'                       => '{agb_claim}',
+        'agb'                               => '{agb_claim}',
+        'bankverbindung'                    => '{bankverbindung}',
+        'angebot e-mail hinweis'            => '{angebot_hinweis}',
+        'angebot ps'                        => '{angebot_ps}',
+        'durchführungs garantie'            => '{durchfuehrungs_garantie}',
+        'durchfuehrungs garantie'           => '{durchfuehrungs_garantie}',
+        'teilnahme_fee'                     => '{teilnahme_fee}',
+        'anhang 2 | exklusive zusatzleistungen' => '{anhang_2}',
+    ];
+
+    if (isset($map[$t])) {
+        return $map[$t];
+    }
+
+    // Automatische Erzeugung aus dem Titel
+    $slug = sanitize_title_with_dashes(str_replace(['ä', 'ö', 'ü', 'ß'], ['ae', 'oe', 'ue', 'ss'], $t));
+    $slug = str_replace(['-', ' '], '_', $slug);
+    $slug = preg_replace('/[^a-z0-9_]/', '', $slug);
+
+    return '{' . ($slug ?: 'komponente') . '}';
 }
 
 /**
@@ -275,10 +384,10 @@ function crm_get_default_pdf_fields(): array
             'desc'    => 'Große Hauptüberschrift des Abschlussdiploms.',
         ],
         'Diplom - Lehrgang Text' => [
-            'content' => 'Hat den Lehrgang',
+            'content' => 'HAT {kurstyp}',
             'doc'     => 'diplom',
             'badge'   => 'Diplom - Lehrgang',
-            'desc'    => 'Zwischentitel über dem Kursnamen.',
+            'desc'    => 'Zwischentitel über dem Kursnamen (dynamisch z. B. "HAT DEN LEHRGANG", "HAT DAS SEMINAR" via {kurstyp}).',
         ],
         'Diplom - Einheiten Text' => [
             'content' => '{anzahl_le} Lehreinheiten à 45 Minuten',
@@ -678,8 +787,14 @@ function render_crm_settings_page()
             update_option('crm_custom_fields', $all_fields);
             echo '<div class="notice notice-success is-dismissible"><p>' . sprintf(esc_html__('Standard-PDF-Felder erfolgreich synchronisiert (%d neue Bausteine hinzugefügt). Bereits existierende Bausteine blieben unverändert.', 'custom-crm'), $added_count) . '</p></div>';
         }
-        // 3. Normal Email or PDF Tab Save
-        elseif ($saved_tab === 'emails' || $saved_tab === 'pdf') {
+        // Master Header & Footer PDF Settings Save
+        elseif (isset($_POST['submit_pdf_master_hf']) || isset($_POST['crm_pdf_master_hf'])) {
+            $master_input = isset($_POST['crm_pdf_master_hf']) && is_array($_POST['crm_pdf_master_hf']) ? $_POST['crm_pdf_master_hf'] : [];
+            crm_save_pdf_master_header_footer($master_input);
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Kopf- & Fußzeilen Master-Einstellungen erfolgreich gespeichert.', 'custom-crm') . '</p></div>';
+        }
+        // 3. Normal Email Tab Save
+        elseif ($saved_tab === 'emails') {
             $all_fields = get_option('crm_custom_fields', []);
             if (!is_array($all_fields)) {
                 $all_fields = [];
@@ -713,6 +828,15 @@ function render_crm_settings_page()
 
             update_option('crm_custom_fields', $remaining_fields);
 
+            // Speichere die Standard-Betreffzeilen der 7 E-Mail-Typen
+            if (!empty($_POST['crm_email_subject']) && is_array($_POST['crm_email_subject'])) {
+                foreach ($_POST['crm_email_subject'] as $doc_k => $doc_subj) {
+                    $clean_k = sanitize_key($doc_k);
+                    $clean_subj = sanitize_text_field(wp_unslash($doc_subj));
+                    update_option('crm_email_subject_' . $clean_k, $clean_subj);
+                }
+            }
+
             $tab_label = ($saved_tab === 'emails') ? __('E-Mail Vorlagen', 'custom-crm') : __('PDF Bausteine', 'custom-crm');
             echo '<div class="notice notice-success is-dismissible"><p>' . sprintf(esc_html__('%s erfolgreich gespeichert.', 'custom-crm'), $tab_label) . '</p></div>';
         }
@@ -745,6 +869,26 @@ function render_crm_settings_page()
         return strcmp($a['title'] ?? '', $b['title'] ?? '');
     });
 
+    // Partition email fields into Full Emails vs Reusable Components
+    $full_emails      = [];
+    $component_emails = [];
+
+    foreach ($email_fields as $orig_idx => $field) {
+        $sub_type = crm_get_email_field_type($field['title'] ?? '', $field);
+        if ($sub_type === 'full_email') {
+            $full_emails[$orig_idx] = $field;
+        } else {
+            $component_emails[$orig_idx] = $field;
+        }
+    }
+
+    uasort($full_emails, function ($a, $b) {
+        return strcmp($a['title'] ?? '', $b['title'] ?? '');
+    });
+    uasort($component_emails, function ($a, $b) {
+        return strcmp($a['title'] ?? '', $b['title'] ?? '');
+    });
+
     $general_settings   = crm_get_general_settings();
     $current_test_email = $general_settings['test_email'] ?? get_option('crm_test_email', wp_get_current_user()->user_email);
     ?>
@@ -770,8 +914,8 @@ function render_crm_settings_page()
             <a href="<?php echo esc_url(admin_url('admin.php?page=crm-settings&tab=pdf')); ?>"
                class="nav-tab <?php echo ($active_tab === 'pdf') ? 'nav-tab-active' : ''; ?>">
                 <span class="dashicons dashicons-media-document" style="margin-right: 4px; vertical-align: text-bottom;"></span>
-                <?php esc_html_e('PDF Editor & Bausteine', 'custom-crm'); ?>
-                <span class="crm-tab-count"><?php echo count($pdf_fields); ?></span>
+                <?php esc_html_e('PDF Editor & Abschnitte', 'custom-crm'); ?>
+                <span class="crm-tab-count">5</span>
             </a>
 
             <a href="<?php echo esc_url(admin_url('admin.php?page=crm-settings&tab=general')); ?>"
@@ -1204,12 +1348,18 @@ function render_crm_settings_page()
                                     <?php esc_html_e('Verwalten Sie hier alle E-Mail-Texte, die beim Versenden von Angeboten, Anmeldungen, Diplomen und Bestätigungen dynamisch generiert werden.', 'custom-crm'); ?>
                                 </p>
                             </div>
-                            <div style="display:flex; gap:10px; align-items:center;">
+                            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                                <a href="#crm-email-preview-section" class="button button-secondary" style="border-color:#0284c7; color:#0284c7; height:32px; line-height:30px; padding:0 14px;">
+                                    <span class="dashicons dashicons-visibility" style="vertical-align:text-top; font-size:16px;"></span> <?php esc_html_e('Zur E-Mail Live-Vorschau springen ↓', 'custom-crm'); ?>
+                                </a>
                                 <button type="button" class="button button-secondary" id="crm-toggle-all-accordions">
                                     <span class="dashicons dashicons-sort" style="vertical-align:text-top;"></span> <?php esc_html_e('Alle auf-/zuklappen', 'custom-crm'); ?>
                                 </button>
                                 <button type="button" class="button button-primary" id="add-crm-email-field" style="background:#0284c7; border-color:#0284c7;">
-                                    <span class="dashicons dashicons-plus-alt2" style="vertical-align:text-top;"></span> <?php esc_html_e('Neue E-Mail-Vorlage anlegen', 'custom-crm'); ?>
+                                    <span class="dashicons dashicons-email-alt" style="vertical-align:text-top;"></span> <?php esc_html_e('Neue Gesamte E-Mail', 'custom-crm'); ?>
+                                </button>
+                                <button type="button" class="button button-secondary" id="add-crm-component-field" style="background:#ecfdf5; border-color:#10b981; color:#047857; font-weight:600;">
+                                    <span class="dashicons dashicons-screenoptions" style="vertical-align:text-top;"></span> <?php esc_html_e('Neuer Baustein / Komponente', 'custom-crm'); ?>
                                 </button>
                             </div>
                         </div>
@@ -1218,22 +1368,281 @@ function render_crm_settings_page()
                         <?php crm_render_placeholders_cheat_sheet('email'); ?>
                     </div>
 
-                    <!-- Filter / Search bar -->
-                    <div style="margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between;">
-                        <input type="text" id="crm-field-search" placeholder="<?php esc_attr_e('Vorlagen filtern...', 'custom-crm'); ?>" style="max-width: 320px; width: 100%; height: 32px; border-radius: 4px; border: 1px solid #cbd5e1; padding: 0 10px;" />
-                        <span style="color:#64748b; font-size:12px;"><?php echo sprintf(esc_html__('%d E-Mail-Vorlagen vorhanden', 'custom-crm'), count($email_fields)); ?></span>
+                    <!-- E-Mail Sections Drag & Drop Organizer (Verfügbare Abschnitte) -->
+                    <div class="crm-email-sections-box" style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 18px 22px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.04);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom: 14px;">
+                            <div>
+                                <h3 style="margin:0 0 4px 0; color:#0f172a; font-size:16px; display:flex; align-items:center; gap:8px;">
+                                    <span class="dashicons dashicons-menu" style="color:#0284c7; font-size:20px;"></span>
+                                    <?php esc_html_e('E-Mail-Abschnitte anordnen (Drag & Drop) & Verfügbare Abschnitte', 'custom-crm'); ?>
+                                </h3>
+                                <p style="margin:0; color:#475569; font-size:13px;">
+                                    <?php esc_html_e('Bringen Sie die modularen Blöcke per Ziehen in Ihre Wunsch-Reihenfolge oder blenden Sie einzelne Abschnitte aus.', 'custom-crm'); ?>
+                                </p>
+                            </div>
+                            <div class="crm-email-sections-doc-pills" style="display:flex; gap:6px; flex-wrap:wrap;">
+                                <button type="button" class="button crm-email-sec-pill active" data-doc="angebot" style="border-color:#0284c7; color:#0284c7; font-weight:600;">
+                                    <span class="dashicons dashicons-media-document" style="font-size:13px; vertical-align:text-top;"></span> Angebot (10)
+                                </button>
+                                <button type="button" class="button crm-email-sec-pill" data-doc="kb" style="color:#0f766e;">
+                                    <span class="dashicons dashicons-calendar-alt" style="font-size:13px; vertical-align:text-top;"></span> Kurszeiten KB (7)
+                                </button>
+                                <button type="button" class="button crm-email-sec-pill" data-doc="angebot_kb" style="color:#7c3aed;">
+                                    <span class="dashicons dashicons-paperclip" style="font-size:13px; vertical-align:text-top;"></span> Angebot & KB (7)
+                                </button>
+                                <button type="button" class="button crm-email-sec-pill" data-doc="anmeldung" style="color:#059669;">
+                                    <span class="dashicons dashicons-saved" style="font-size:13px; vertical-align:text-top;"></span> Anmeldung (6)
+                                </button>
+                                <button type="button" class="button crm-email-sec-pill" data-doc="tb" style="color:#047857;">
+                                    <span class="dashicons dashicons-id-alt" style="font-size:13px; vertical-align:text-top;"></span> Teilnahme TB (6)
+                                </button>
+                                <button type="button" class="button crm-email-sec-pill" data-doc="diplom" style="color:#b45309;">
+                                    <span class="dashicons dashicons-awards" style="font-size:13px; vertical-align:text-top;"></span> Diplom (6)
+                                </button>
+                                <button type="button" class="button crm-email-sec-pill" data-doc="invoice" style="color:#be185d;">
+                                    <span class="dashicons dashicons-money-alt" style="font-size:13px; vertical-align:text-top;"></span> Honorarnote (7)
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="crm-email-sec-tab-pane" id="crm-email-sec-pane-angebot" style="display:block;">
+                            <?php if (function_exists('crm_render_email_subject_editor')) crm_render_email_subject_editor('angebot'); ?>
+                            <?php if (function_exists('crm_render_email_type_attachments_info')) crm_render_email_type_attachments_info('angebot'); ?>
+                            <?php crm_render_email_sections_manager('angebot', null, false); ?>
+                        </div>
+                        <div class="crm-email-sec-tab-pane" id="crm-email-sec-pane-kb" style="display:none;">
+                            <?php if (function_exists('crm_render_email_subject_editor')) crm_render_email_subject_editor('kb'); ?>
+                            <?php if (function_exists('crm_render_email_type_attachments_info')) crm_render_email_type_attachments_info('kb'); ?>
+                            <?php crm_render_email_sections_manager('kb', null, false); ?>
+                        </div>
+                        <div class="crm-email-sec-tab-pane" id="crm-email-sec-pane-angebot_kb" style="display:none;">
+                            <?php if (function_exists('crm_render_email_subject_editor')) crm_render_email_subject_editor('angebot_kb'); ?>
+                            <?php if (function_exists('crm_render_email_type_attachments_info')) crm_render_email_type_attachments_info('angebot_kb'); ?>
+                            <?php crm_render_email_sections_manager('angebot_kb', null, false); ?>
+                        </div>
+                        <div class="crm-email-sec-tab-pane" id="crm-email-sec-pane-anmeldung" style="display:none;">
+                            <?php if (function_exists('crm_render_email_subject_editor')) crm_render_email_subject_editor('anmeldung'); ?>
+                            <?php if (function_exists('crm_render_email_type_attachments_info')) crm_render_email_type_attachments_info('anmeldung'); ?>
+                            <?php crm_render_email_sections_manager('anmeldung', null, false); ?>
+                        </div>
+                        <div class="crm-email-sec-tab-pane" id="crm-email-sec-pane-tb" style="display:none;">
+                            <?php if (function_exists('crm_render_email_subject_editor')) crm_render_email_subject_editor('tb'); ?>
+                            <?php if (function_exists('crm_render_email_type_attachments_info')) crm_render_email_type_attachments_info('tb'); ?>
+                            <?php crm_render_email_sections_manager('tb', null, false); ?>
+                        </div>
+                        <div class="crm-email-sec-tab-pane" id="crm-email-sec-pane-diplom" style="display:none;">
+                            <?php if (function_exists('crm_render_email_subject_editor')) crm_render_email_subject_editor('diplom'); ?>
+                            <?php if (function_exists('crm_render_email_type_attachments_info')) crm_render_email_type_attachments_info('diplom'); ?>
+                            <?php crm_render_email_sections_manager('diplom', null, false); ?>
+                        </div>
+                        <div class="crm-email-sec-tab-pane" id="crm-email-sec-pane-invoice" style="display:none;">
+                            <?php if (function_exists('crm_render_email_subject_editor')) crm_render_email_subject_editor('invoice'); ?>
+                            <?php if (function_exists('crm_render_email_type_attachments_info')) crm_render_email_type_attachments_info('invoice'); ?>
+                            <?php crm_render_email_sections_manager('invoice', null, false); ?>
+                        </div>
+                    </div>
+
+                    <!-- Filter / Search bar with Pills: Alle / Gesamte Mails / Komponenten -->
+                    <div style="margin-bottom: 16px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                        <div class="crm-email-field-filter-pills" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                            <span style="font-size: 12px; font-weight: 700; color: #475569; margin-right: 4px;"><?php esc_html_e('Ansicht filtern:', 'custom-crm'); ?></span>
+                            <button type="button" class="button crm-email-field-filter-btn active" data-type="all" style="background:#0284c7; color:#ffffff; border-color:#0284c7; font-weight:700; font-size:12px; height:30px; line-height:28px; border-radius:15px; padding:0 14px; cursor:pointer;">
+                                <?php esc_html_e('Alle Vorlagen', 'custom-crm'); ?> (<?php echo count($email_fields); ?>)
+                            </button>
+                            <button type="button" class="button crm-email-field-filter-btn" data-type="full_email" style="font-size:12px; height:30px; line-height:28px; border-radius:15px; padding:0 14px; color:#0369a1; border-color:#bae6fd; background:#f0f9ff; cursor:pointer;">
+                                <span class="dashicons dashicons-email-alt" style="font-size:14px; vertical-align:text-top; margin-right:2px;"></span>
+                                <?php esc_html_e('Gesamte E-Mails', 'custom-crm'); ?> (<?php echo count($full_emails); ?>)
+                            </button>
+                            <button type="button" class="button crm-email-field-filter-btn" data-type="component" style="font-size:12px; height:30px; line-height:28px; border-radius:15px; padding:0 14px; color:#047857; border-color:#a7f3d0; background:#ecfdf5; cursor:pointer;">
+                                <span class="dashicons dashicons-screenoptions" style="font-size:14px; vertical-align:text-top; margin-right:2px;"></span>
+                                <?php esc_html_e('Komponenten & Bausteine', 'custom-crm'); ?> (<?php echo count($component_emails); ?>)
+                            </button>
+                        </div>
+
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="text" id="crm-field-search" placeholder="<?php esc_attr_e('Vorlagen & Bausteine suchen...', 'custom-crm'); ?>" style="width: 250px; height: 32px; border-radius: 4px; border: 1px solid #cbd5e1; padding: 0 10px; font-size:12px;" />
+                        </div>
                     </div>
 
                     <div id="crm-fields-wrapper">
-                        <?php
-                        if (!empty($email_fields)) {
-                            foreach ($email_fields as $orig_index => $field) {
-                                crm_render_editor_field($orig_index, $field['title'] ?? '', $field['content'] ?? '', 'email');
-                            }
-                        } else {
-                            echo '<p class="description">' . esc_html__('Keine E-Mail-Vorlagen hinterlegt. Klicken Sie auf "Neue E-Mail-Vorlage anlegen".', 'custom-crm') . '</p>';
-                        }
-                        ?>
+                        <!-- GROUP 1: GESAMTE E-MAILS -->
+                        <div class="crm-email-group crm-email-group-full" style="margin-bottom: 26px;">
+                            <div style="background:#f0f9ff; border:1px solid #bae6fd; border-left:4px solid #0284c7; border-radius:6px; padding:12px 16px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                                <div>
+                                    <strong style="font-size:14px; color:#0369a1; display:flex; align-items:center; gap:6px;">
+                                        <span class="dashicons dashicons-email-alt" style="font-size:18px; width:18px; height:18px; color:#0284c7;"></span>
+                                        <?php esc_html_e('Gesamte E-Mails (Master-Vorlagen)', 'custom-crm'); ?>
+                                    </strong>
+                                    <p style="margin:3px 0 0 0; font-size:12px; color:#0284c7;">
+                                        <?php esc_html_e('Vollständige E-Mail-Vorlagen für den automatischen Versand an Kunden. Binden Sie modulare Komponenten über Platzhalter wie {signatur_email} oder {buchung_email} ein.', 'custom-crm'); ?>
+                                    </p>
+                                </div>
+                                <span style="background:#0284c7; color:#ffffff; font-size:11px; font-weight:700; padding:3px 10px; border-radius:12px;">
+                                    <?php echo count($full_emails); ?> <?php esc_html_e('Vorlagen', 'custom-crm'); ?>
+                                </span>
+                            </div>
+                            <div class="crm-email-group-items">
+                                <?php
+                                if (!empty($full_emails)) {
+                                    foreach ($full_emails as $orig_index => $field) {
+                                        crm_render_editor_field($orig_index, $field['title'] ?? '', $field['content'] ?? '', 'email', 'full_email');
+                                    }
+                                } else {
+                                    echo '<p class="description" style="margin:10px 0;">' . esc_html__('Keine gesamten E-Mail-Vorlagen vorhanden.', 'custom-crm') . '</p>';
+                                }
+                                ?>
+                            </div>
+                        </div>
+
+                        <!-- GROUP 2: WIEDERVERWENDBARE KOMPONENTEN -->
+                        <div class="crm-email-group crm-email-group-components" style="margin-bottom: 26px;">
+                            <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-left:4px solid #059669; border-radius:6px; padding:12px 16px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                                <div>
+                                    <strong style="font-size:14px; color:#166534; display:flex; align-items:center; gap:6px;">
+                                        <span class="dashicons dashicons-screenoptions" style="font-size:18px; width:18px; height:18px; color:#059669;"></span>
+                                        <?php esc_html_e('Wiederverwendbare Komponenten & Bausteine', 'custom-crm'); ?>
+                                    </strong>
+                                    <p style="margin:3px 0 0 0; font-size:12px; color:#15803d;">
+                                        <?php esc_html_e('Modulare Textbausteine (Signatur, Footer, Buchungshinweis, AGB, Bankverbindung etc.), die flexibel per Platzhalter in alle gesamten E-Mails eingebunden werden.', 'custom-crm'); ?>
+                                    </p>
+                                </div>
+                                <span style="background:#059669; color:#ffffff; font-size:11px; font-weight:700; padding:3px 10px; border-radius:12px;">
+                                    <?php echo count($component_emails); ?> <?php esc_html_e('Komponenten', 'custom-crm'); ?>
+                                </span>
+                            </div>
+                            <div class="crm-email-group-items">
+                                <?php
+                                if (!empty($component_emails)) {
+                                    foreach ($component_emails as $orig_index => $field) {
+                                        crm_render_editor_field($orig_index, $field['title'] ?? '', $field['content'] ?? '', 'email', 'component');
+                                    }
+                                } else {
+                                    echo '<p class="description" style="margin:10px 0;">' . esc_html__('Keine Komponenten vorhanden.', 'custom-crm') . '</p>';
+                                }
+                                ?>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- E-Mail Live-Vorschau Bereich -->
+                    <div id="crm-email-preview-section" class="crm-preview-card" style="margin-top: 28px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden;">
+                        <div class="crm-preview-header" style="background: #f8fafc; border-bottom: 1px solid #e2e8f0; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 6px;">
+                                    <span class="dashicons dashicons-email-alt" style="color: #0284c7; font-size: 19px;"></span>
+                                    <span><?php esc_html_e('E-Mail Live-Vorschau:', 'custom-crm'); ?></span>
+                                    <span id="crm-email-preview-doc-title" style="color: #0284c7;"><?php esc_html_e('Kursangebot & Beratung', 'custom-crm'); ?></span>
+                                </h3>
+                                <span id="crm-email-preview-sample-info" style="font-size: 11.5px; color: #0369a1; background: #e0f2fe; padding: 2px 8px; border-radius: 12px; font-weight: 500;">
+                                    <?php esc_html_e('Wird geladen...', 'custom-crm'); ?>
+                                </span>
+                            </div>
+
+                            <!-- Preview switcher pills inside preview card -->
+                            <div class="crm-preview-doc-switcher" style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
+                                <span style="font-size: 12px; font-weight: 600; color: #64748b; margin-right: 2px;"><?php esc_html_e('Vorlage:', 'custom-crm'); ?></span>
+                                <button type="button" class="button crm-email-preview-switch-btn active" data-doc="angebot" title="<?php esc_attr_e('Kursangebot & Beratung', 'custom-crm'); ?>">
+                                    <span class="dashicons dashicons-media-document" style="font-size:13px; vertical-align:text-top;"></span> Angebot
+                                </button>
+                                <button type="button" class="button crm-email-preview-switch-btn" data-doc="kb" title="<?php esc_attr_e('Kurszeitenbestätigung', 'custom-crm'); ?>">
+                                    <span class="dashicons dashicons-calendar-alt" style="font-size:13px; vertical-align:text-top;"></span> KB
+                                </button>
+                                <button type="button" class="button crm-email-preview-switch-btn" data-doc="angebot_kb" title="<?php esc_attr_e('Angebot & Kurszeiten (Kombi)', 'custom-crm'); ?>">
+                                    <span class="dashicons dashicons-paperclip" style="font-size:13px; vertical-align:text-top;"></span> Kombi
+                                </button>
+                                <button type="button" class="button crm-email-preview-switch-btn" data-doc="anmeldung" title="<?php esc_attr_e('Anmeldebestätigung', 'custom-crm'); ?>">
+                                    <span class="dashicons dashicons-saved" style="font-size:13px; vertical-align:text-top;"></span> Anmeldung
+                                </button>
+                                <button type="button" class="button crm-email-preview-switch-btn" data-doc="tb" title="<?php esc_attr_e('Teilnahmebestätigung', 'custom-crm'); ?>">
+                                    <span class="dashicons dashicons-id-alt" style="font-size:13px; vertical-align:text-top;"></span> TB
+                                </button>
+                                <button type="button" class="button crm-email-preview-switch-btn" data-doc="diplom" title="<?php esc_attr_e('Diplom / Zertifikat', 'custom-crm'); ?>">
+                                    <span class="dashicons dashicons-awards" style="font-size:13px; vertical-align:text-top;"></span> Diplom
+                                </button>
+                                <button type="button" class="button crm-email-preview-switch-btn" data-doc="invoice" title="<?php esc_attr_e('Honorarnote / Rechnung', 'custom-crm'); ?>">
+                                    <span class="dashicons dashicons-money-alt" style="font-size:13px; vertical-align:text-top;"></span> Honorarnote
+                                </button>
+                            </div>
+
+                            <!-- Viewport switcher: Desktop vs Mobile vs Full -->
+                            <div class="crm-email-viewport-switcher" style="display: flex; align-items: center; background: #e2e8f0; padding: 2px; border-radius: 6px;">
+                                <button type="button" class="button button-small crm-viewport-btn active" data-viewport="desktop" title="<?php esc_attr_e('Desktop Ansicht (600px - Outlook Standard)', 'custom-crm'); ?>" style="font-size: 11px; height: 26px; line-height: 24px; padding: 0 8px; border: none; background: #ffffff; color: #0f172a; font-weight: 600; border-radius: 4px;">
+                                    🖥️ Desktop (600px)
+                                </button>
+                                <button type="button" class="button button-small crm-viewport-btn" data-viewport="mobile" title="<?php esc_attr_e('Smartphone Ansicht (375px - Mobile Clients)', 'custom-crm'); ?>" style="font-size: 11px; height: 26px; line-height: 24px; padding: 0 8px; border: none; background: transparent; color: #475569; border-radius: 4px;">
+                                    📱 Mobile (375px)
+                                </button>
+                                <button type="button" class="button button-small crm-viewport-btn" data-viewport="full" title="<?php esc_attr_e('Vollbreite Ansicht (100%)', 'custom-crm'); ?>" style="font-size: 11px; height: 26px; line-height: 24px; padding: 0 8px; border: none; background: transparent; color: #475569; border-radius: 4px;">
+                                    ↔️ 100%
+                                </button>
+                            </div>
+
+                            <!-- Actions toolbar -->
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <button type="button" class="button button-secondary" id="crm-email-preview-reload-btn" title="<?php esc_attr_e('Vorschau aktualisieren / neu generieren', 'custom-crm'); ?>" style="height: 30px; line-height: 28px; padding: 0 10px;">
+                                    <span class="dashicons dashicons-update crm-email-reload-icon" style="font-size: 14px; vertical-align: text-top;"></span>
+                                    <span class="crm-btn-text"><?php esc_html_e('Neu laden', 'custom-crm'); ?></span>
+                                </button>
+                                <button type="button" class="button button-secondary" id="crm-email-send-test-btn" title="<?php esc_attr_e('Diese Vorschau als Test-Mail versenden', 'custom-crm'); ?>" style="height: 30px; line-height: 28px; padding: 0 10px; color:#0284c7; border-color:#0284c7;">
+                                    <span class="dashicons dashicons-email" style="font-size: 14px; vertical-align: text-top;"></span>
+                                    <?php esc_html_e('Test-Mail', 'custom-crm'); ?>
+                                </button>
+                                <button type="button" class="button button-secondary" id="crm-email-copy-html-btn" title="<?php esc_attr_e('HTML-Quellcode in Zwischenablage kopieren', 'custom-crm'); ?>" style="height: 30px; line-height: 28px; padding: 0 10px;">
+                                    <span class="dashicons dashicons-clipboard" style="font-size: 14px; vertical-align: text-top;"></span>
+                                    <?php esc_html_e('HTML kopieren', 'custom-crm'); ?>
+                                </button>
+                                <a href="#" target="_blank" class="button button-secondary" id="crm-email-preview-newtab-btn" title="<?php esc_attr_e('In neuem Tab / Vollbild öffnen', 'custom-crm'); ?>" style="height: 30px; line-height: 28px; padding: 0 10px;">
+                                    <span class="dashicons dashicons-external" style="font-size: 14px; vertical-align: text-top;"></span>
+                                    <?php esc_html_e('Vollbild', 'custom-crm'); ?>
+                                </a>
+                                <button type="button" class="button button-secondary" id="crm-email-preview-toggle-size-btn" title="<?php esc_attr_e('Vorschau-Höhe vergrößern / verkleinern', 'custom-crm'); ?>" style="height: 30px; line-height: 28px; padding: 0 8px;">
+                                    <span class="dashicons dashicons-editor-expand" style="font-size: 14px; vertical-align: text-top;"></span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Iframe & Loading Container -->
+                        <div class="crm-email-preview-body" style="position: relative; width: 100%; min-height: 600px; background: #cbd5e1; display: flex; justify-content: center; align-items: flex-start; padding: 20px 0; overflow-x: auto;">
+                            <!-- Spinner Overlay -->
+                            <div id="crm-email-preview-loading" style="position: absolute; inset: 0; background: rgba(255,255,255,0.88); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10;">
+                                <span class="dashicons dashicons-update spin" style="font-size: 40px; width: 40px; height: 40px; color: #0284c7;"></span>
+                                <p style="margin-top: 12px; font-weight: 600; color: #334155; font-size: 14px;" id="crm-email-preview-loading-text">
+                                    <?php esc_html_e('E-Mail Live-Vorschau wird generiert...', 'custom-crm'); ?>
+                                </p>
+                            </div>
+
+                            <!-- Error Message Box -->
+                            <div id="crm-email-preview-error" style="display: none; position: absolute; inset: 0; background: #fff; padding: 40px; text-align: center; z-index: 10;">
+                                <span class="dashicons dashicons-warning" style="font-size: 48px; width: 48px; height: 48px; color: #dc2626;"></span>
+                                <h4 style="color: #dc2626; margin: 10px 0 6px 0; font-size: 16px;"><?php esc_html_e('Vorschau konnte nicht gerendert werden', 'custom-crm'); ?></h4>
+                                <p id="crm-email-preview-error-msg" style="color: #64748b; font-size: 13px; max-width: 500px; margin: 0 auto 16px auto;"></p>
+                                <button type="button" class="button button-primary" onclick="jQuery('#crm-email-preview-reload-btn').trigger('click');">
+                                    <?php esc_html_e('Erneut versuchen', 'custom-crm'); ?>
+                                </button>
+                            </div>
+
+                            <!-- Embedded Iframe with responsive wrapper -->
+                            <div id="crm-email-iframe-wrapper" class="viewport-desktop" style="width: 600px; max-width: 100%; transition: width 0.25s ease, box-shadow 0.25s ease; box-shadow: 0 4px 14px rgba(0,0,0,0.12); border-radius: 8px; overflow: hidden; background: #ffffff;">
+                                <iframe id="crm-email-preview-iframe"
+                                        src="about:blank"
+                                        style="width: 100%; height: 620px; border: none; display: block;"
+                                        title="<?php esc_attr_e('E-Mail Live-Vorschau', 'custom-crm'); ?>">
+                                </iframe>
+                            </div>
+                        </div>
+
+                        <div class="crm-preview-footer" style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 8px 18px; display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; color: #64748b; flex-wrap: wrap; gap: 8px;">
+                            <span>
+                                <span class="dashicons dashicons-info" style="font-size: 14px; width: 14px; height: 14px; vertical-align: middle; color: #0284c7;"></span>
+                                <?php esc_html_e('Hinweis: Nach Änderungen an Textbausteinen oder Abschnitten und Speichern aktualisiert sich diese E-Mail-Vorschau automatisch.', 'custom-crm'); ?>
+                            </span>
+                            <div style="display:flex; align-items:center; gap:12px;">
+                                <span id="crm-email-preview-updated-at" style="font-weight: 500;"></span>
+                                <a href="#crm-tab-emails" class="button button-link" style="text-decoration:none; color:#0284c7; font-size:11.5px;">
+                                    <span class="dashicons dashicons-arrow-up-alt2" style="font-size:14px; vertical-align:text-top;"></span> <?php esc_html_e('Nach oben zu den Vorlagen ↑', 'custom-crm'); ?>
+                                </a>
+                            </div>
+                        </div>
                     </div>
 
                     <p style="margin-top: 25px;">
@@ -1261,15 +1670,9 @@ function render_crm_settings_page()
                                 </p>
                             </div>
                             <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                                <button type="button" class="button button-secondary" id="crm-toggle-all-accordions">
-                                    <span class="dashicons dashicons-sort" style="vertical-align:text-top;"></span> <?php esc_html_e('Alle auf-/zuklappen', 'custom-crm'); ?>
-                                </button>
-                                <button type="submit" name="sync_default_pdf_fields" value="1" class="button button-secondary" style="border-color:#7c3aed; color:#6d28d9;" onclick="return confirm('<?php echo esc_js(__('Standard-PDF-Felder initialisieren? Bereits existierende oder angepasste Bausteine bleiben vollständig unverändert.', 'custom-crm')); ?>');">
-                                    <span class="dashicons dashicons-update" style="vertical-align:text-top;"></span> <?php esc_html_e('Standard-Felder laden', 'custom-crm'); ?>
-                                </button>
-                                <button type="button" class="button button-primary" id="add-crm-pdf-field" style="background:#7c3aed; border-color:#7c3aed;">
-                                    <span class="dashicons dashicons-plus-alt2" style="vertical-align:text-top;"></span> <?php esc_html_e('Neuen PDF-Baustein anlegen', 'custom-crm'); ?>
-                                </button>
+                                <a href="#crm-pdf-preview-section" class="button button-secondary" style="border-color:#7c3aed; color:#6d28d9; height:32px; line-height:30px; padding:0 14px;">
+                                    <span class="dashicons dashicons-visibility" style="vertical-align:text-top; font-size:16px;"></span> <?php esc_html_e('Zur Live-Vorschau springen ↓', 'custom-crm'); ?>
+                                </a>
                             </div>
                         </div>
 
@@ -1277,68 +1680,159 @@ function render_crm_settings_page()
                         <?php crm_render_placeholders_cheat_sheet('pdf'); ?>
                     </div>
 
-                    <!-- Filter pills & Live Search -->
-                    <div class="crm-doc-pills-bar" style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-                        <div class="crm-doc-pills" style="display: flex; gap: 6px; flex-wrap: wrap;">
-                            <button type="button" class="button crm-doc-pill active" data-doc="all">
-                                <?php esc_html_e('Alle Dokumente', 'custom-crm'); ?> (<?php echo count($pdf_fields); ?>)
-                            </button>
-                            <button type="button" class="button crm-doc-pill" data-doc="kb" style="color: #0f766e;">
-                                <span class="dashicons dashicons-calendar-alt" style="font-size:14px; vertical-align:text-top;"></span> Kurszeiten (KB)
-                            </button>
-                            <button type="button" class="button crm-doc-pill" data-doc="tb" style="color: #047857;">
-                                <span class="dashicons dashicons-id-alt" style="font-size:14px; vertical-align:text-top;"></span> Teilnahme (TB)
-                            </button>
-                            <button type="button" class="button crm-doc-pill" data-doc="diplom" style="color: #b45309;">
-                                <span class="dashicons dashicons-awards" style="font-size:14px; vertical-align:text-top;"></span> Diplom
-                            </button>
-                            <button type="button" class="button crm-doc-pill" data-doc="angebot" style="color: #6d28d9;">
-                                <span class="dashicons dashicons-media-document" style="font-size:14px; vertical-align:text-top;"></span> Angebot & Anhang
-                            </button>
-                            <button type="button" class="button crm-doc-pill" data-doc="invoice" style="color: #be185d;">
-                                <span class="dashicons dashicons-money-alt" style="font-size:14px; vertical-align:text-top;"></span> Honorarnote
-                            </button>
-                        </div>
-                        <div>
-                            <input type="text" id="crm-field-search" placeholder="<?php esc_attr_e('Bausteine filtern...', 'custom-crm'); ?>" style="max-width: 260px; width: 100%; height: 32px; border-radius: 4px; border: 1px solid #cbd5e1; padding: 0 10px;" />
-                        </div>
-                    </div>
-
-                    <div id="crm-fields-wrapper">
-                        <?php
-                        if (!empty($pdf_fields)) {
-                            foreach ($pdf_fields as $orig_index => $field) {
-                                crm_render_editor_field($orig_index, $field['title'] ?? '', $field['content'] ?? '', 'pdf');
-                            }
-                        } else {
-                            ?>
-                            <div class="notice notice-info inline" style="padding: 18px 20px; margin: 15px 0; border-radius: 8px; background: #f8fafc; border: 1px solid #cbd5e1;">
-                                <h3 style="margin-top: 0; color: #1e293b;">
-                                    <?php esc_html_e('Noch keine benutzerdefinierten PDF-Bausteine geladen', 'custom-crm'); ?>
+                    <!-- Master Header & Footer Box (Angebot-PDF) -->
+                    <?php
+                    $master_hf = function_exists('crm_get_pdf_master_header_footer') ? crm_get_pdf_master_header_footer() : [];
+                    ?>
+                    <div class="crm-pdf-master-hf-box" style="background: #ffffff; border: 1px solid #cbd5e1; border-left: 4px solid #7c3aed; border-radius: 8px; padding: 18px 22px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.04);">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom: 14px;">
+                            <div>
+                                <h3 style="margin:0 0 4px 0; color:#0f172a; font-size:16px; display:flex; align-items:center; gap:8px;">
+                                    <span class="dashicons dashicons-admin-appearance" style="color:#7c3aed; font-size:20px;"></span>
+                                    <?php esc_html_e('Kopf- & Fußzeilen Master-Einstellungen (Angebot-PDF)', 'custom-crm'); ?>
                                 </h3>
-                                <p style="font-size: 13.5px; color: #475569; margin: 0 0 14px 0;">
-                                    <?php esc_html_e('Klicken Sie auf den Button unten, um alle Standard-Textbausteine für alle PDF-Vorlagen (Kurszeitenbestätigung, Teilnahmebestätigung, Diplom, Angebot & Honorarnote) sofort zu laden und bearbeitbar zu machen.', 'custom-crm'); ?>
-                                </p>
-                                <p style="margin: 0;">
-                                    <button type="submit" name="sync_default_pdf_fields" value="1" class="button button-primary button-large" style="background:#7c3aed; border-color:#7c3aed;">
-                                        <span class="dashicons dashicons-download" style="vertical-align:text-bottom;"></span>
-                                        <?php esc_html_e('Standard-Felder für alle PDFs jetzt initialisieren', 'custom-crm'); ?>
-                                    </button>
+                                <p style="margin:0; color:#475569; font-size:13px;">
+                                    <?php esc_html_e('Definieren Sie hier die Standard-Vorlage für Kopf- und Fußzeilen des Angebots. Jede Seite im Abschnitt-Manager kann diese Master-Einstellung erben oder individuell übersteuern.', 'custom-crm'); ?>
                                 </p>
                             </div>
-                            <?php
-                        }
-                        ?>
+                            <div>
+                                <span class="crm-section-tag" style="background:#f5f3ff; color:#6d28d9; border:1px solid #ddd6fe; font-size:11px; padding:3px 8px; border-radius:4px; font-weight:600;">
+                                    <?php esc_html_e('Master-Vorlage', 'custom-crm'); ?>
+                                </span>
+                            </div>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
+                            <!-- MASTER HEADER -->
+                            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:14px;">
+                                <h4 style="margin:0 0 10px 0; font-size:13px; color:#0f172a; display:flex; align-items:center; gap:6px;">
+                                    <span class="dashicons dashicons-heading" style="color:#007C90;"></span>
+                                    <?php esc_html_e('Standard-Kopfzeile (Master-Header)', 'custom-crm'); ?>
+                                </h4>
+
+                                <div style="margin-bottom:10px;">
+                                    <label style="display:block; font-size:11.5px; font-weight:600; color:#334155; margin-bottom:3px;">
+                                        <?php esc_html_e('Standard Header-Modus:', 'custom-crm'); ?>
+                                    </label>
+                                    <select name="crm_pdf_master_hf[header_mode]" class="crm-master-header-mode regular-text" style="width:100%; height:32px; font-size:12px;">
+                                        <option value="full" <?php selected(($master_hf['header_mode'] ?? 'full'), 'full'); ?>><?php esc_html_e('Logo links & Firmenadresse rechts (Vollständig)', 'custom-crm'); ?></option>
+                                        <option value="logo_only" <?php selected(($master_hf['header_mode'] ?? 'full'), 'logo_only'); ?>><?php esc_html_e('Nur Logo (ohne Adresse)', 'custom-crm'); ?></option>
+                                        <option value="address_only" <?php selected(($master_hf['header_mode'] ?? 'full'), 'address_only'); ?>><?php esc_html_e('Nur Firmenadresse & Kontaktdaten (ohne Logo)', 'custom-crm'); ?></option>
+                                        <option value="none" <?php selected(($master_hf['header_mode'] ?? 'full'), 'none'); ?>><?php esc_html_e('🚫 Keine Kopfzeile (Standardmäßig ausblenden)', 'custom-crm'); ?></option>
+                                    </select>
+                                </div>
+
+                                <div style="display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:#334155; margin-bottom:6px;">
+                                    <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+                                        <input type="checkbox" name="crm_pdf_master_hf[header_logo]" value="1" <?php checked(!empty($master_hf['header_logo'])); ?>>
+                                        <span><?php esc_html_e('Logo einblenden', 'custom-crm'); ?></span>
+                                    </label>
+                                    <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+                                        <input type="checkbox" name="crm_pdf_master_hf[header_address]" value="1" <?php checked(!empty($master_hf['header_address'])); ?>>
+                                        <span><?php esc_html_e('Firmenadresse & Kontakt einblenden', 'custom-crm'); ?></span>
+                                    </label>
+                                </div>
+                                <p style="margin:4px 0 0 0; font-size:11px; color:#64748b;">
+                                    <?php esc_html_e('Firmendaten und Logo stammen aus den Allgemeinen CRM-Einstellungen.', 'custom-crm'); ?>
+                                </p>
+                            </div>
+
+                            <!-- MASTER FOOTER -->
+                            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:14px;">
+                                <h4 style="margin:0 0 10px 0; font-size:13px; color:#0f172a; display:flex; align-items:center; gap:6px;">
+                                    <span class="dashicons dashicons-editor-insertmore" style="color:#007C90;"></span>
+                                    <?php esc_html_e('Standard-Fußzeile (Master-Footer)', 'custom-crm'); ?>
+                                </h4>
+
+                                <div style="margin-bottom:10px;">
+                                    <label style="display:block; font-size:11.5px; font-weight:600; color:#334155; margin-bottom:3px;">
+                                        <?php esc_html_e('Standard Footer-Modus:', 'custom-crm'); ?>
+                                    </label>
+                                    <select name="crm_pdf_master_hf[footer_mode]" class="crm-master-footer-mode regular-text" style="width:100%; height:32px; font-size:12px;">
+                                        <option value="standard" <?php selected(($master_hf['footer_mode'] ?? 'standard'), 'standard'); ?>><?php esc_html_e('Firmendaten + Seitenzahlen (Standard)', 'custom-crm'); ?></option>
+                                        <option value="full" <?php selected(($master_hf['footer_mode'] ?? 'standard'), 'full'); ?>><?php esc_html_e('Firmendaten + Seitenzahlen + Datum', 'custom-crm'); ?></option>
+                                        <option value="page_numbers_only" <?php selected(($master_hf['footer_mode'] ?? 'standard'), 'page_numbers_only'); ?>><?php esc_html_e('Nur Seitenzahlen', 'custom-crm'); ?></option>
+                                        <option value="company_only" <?php selected(($master_hf['footer_mode'] ?? 'standard'), 'company_only'); ?>><?php esc_html_e('Nur Firmendaten (ohne Seitenzahlen)', 'custom-crm'); ?></option>
+                                        <option value="none" <?php selected(($master_hf['footer_mode'] ?? 'standard'), 'none'); ?>><?php esc_html_e('🚫 Keine Fußzeile (Standardmäßig ausblenden)', 'custom-crm'); ?></option>
+                                    </select>
+                                </div>
+
+                                <div style="display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:#334155; margin-bottom:6px;">
+                                    <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+                                        <input type="checkbox" name="crm_pdf_master_hf[footer_company]" value="1" <?php checked(!empty($master_hf['footer_company'])); ?>>
+                                        <span><?php esc_html_e('Firmendaten (UID, FN, Gericht)', 'custom-crm'); ?></span>
+                                    </label>
+                                    <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+                                        <input type="checkbox" name="crm_pdf_master_hf[footer_page_num]" value="1" <?php checked(!empty($master_hf['footer_page_num'])); ?>>
+                                        <span><?php esc_html_e('Seitenzahlen', 'custom-crm'); ?></span>
+                                    </label>
+                                    <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+                                        <input type="checkbox" name="crm_pdf_master_hf[footer_date]" value="1" <?php checked(!empty($master_hf['footer_date'])); ?>>
+                                        <span><?php esc_html_e('Datum', 'custom-crm'); ?></span>
+                                    </label>
+                                </div>
+                                <p style="margin:4px 0 0 0; font-size:11px; color:#64748b;">
+                                    <?php esc_html_e('Kann in jeder einzelnen Angebotsseite flexibel ein- oder ausgeschaltet werden.', 'custom-crm'); ?>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div style="margin-top:14px; display:flex; justify-content:flex-end;">
+                            <button type="submit" name="submit_pdf_master_hf" class="button button-secondary" style="border-color:#7c3aed; color:#6d28d9; height:30px; line-height:28px;">
+                                <span class="dashicons dashicons-saved" style="vertical-align:text-top; font-size:15px;"></span>
+                                <?php esc_html_e('Master-Einstellungen speichern', 'custom-crm'); ?>
+                            </button>
+                        </div>
                     </div>
 
-                    <p style="margin-top: 25px; margin-bottom: 25px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
-                        <button type="submit" name="submit_pdf" class="button button-primary button-large" style="background:#007C90; border-color:#007C90; font-size:14px; height:38px; padding:0 24px;">
-                            <span class="dashicons dashicons-saved" style="vertical-align:text-bottom;"></span> <?php esc_html_e('Alle PDF-Bausteine speichern', 'custom-crm'); ?>
-                        </button>
-                        <a href="#crm-pdf-preview-section" class="button button-secondary" style="height:38px; line-height:36px; padding:0 18px; color:#6d28d9; border-color:#7c3aed;">
-                            <span class="dashicons dashicons-visibility" style="vertical-align:text-top; font-size:16px;"></span> <?php esc_html_e('Zur Live-Vorschau springen ↓', 'custom-crm'); ?>
-                        </a>
-                    </p>
+                    <!-- PDF Sections Drag & Drop Organizer -->
+                    <div class="crm-pdf-sections-box" style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 18px 22px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.04);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom: 14px;">
+                            <div>
+                                <h3 style="margin:0 0 4px 0; color:#0f172a; font-size:16px; display:flex; align-items:center; gap:8px;">
+                                    <span class="dashicons dashicons-menu" style="color:#007C90; font-size:20px;"></span>
+                                    <?php esc_html_e('PDF-Abschnitte anordnen (Drag & Drop)', 'custom-crm'); ?>
+                                </h3>
+                                <p style="margin:0; color:#475569; font-size:13px;">
+                                    <?php esc_html_e('Bringen Sie die Abschnitte per Ziehen in Ihre Wunsch-Reihenfolge oder blenden Sie einzelne Abschnitte aus.', 'custom-crm'); ?>
+                                </p>
+                            </div>
+                            <div class="crm-sections-doc-pills" style="display:flex; gap:6px; flex-wrap:wrap;">
+                                <button type="button" class="button crm-sec-pill active" data-doc="angebot" style="border-color:#7c3aed; color:#6d28d9; font-weight:600;">
+                                    <span class="dashicons dashicons-media-document" style="font-size:13px; vertical-align:text-top;"></span> Angebot (7)
+                                </button>
+                                <button type="button" class="button crm-sec-pill" data-doc="kb" style="color:#0f766e;">
+                                    <span class="dashicons dashicons-calendar-alt" style="font-size:13px; vertical-align:text-top;"></span> Kurszeiten KB (7)
+                                </button>
+                                <button type="button" class="button crm-sec-pill" data-doc="tb" style="color:#047857;">
+                                    <span class="dashicons dashicons-id-alt" style="font-size:13px; vertical-align:text-top;"></span> Teilnahme TB (6)
+                                </button>
+                                <button type="button" class="button crm-sec-pill" data-doc="diplom" style="color:#b45309;">
+                                    <span class="dashicons dashicons-awards" style="font-size:13px; vertical-align:text-top;"></span> Diplom (7)
+                                </button>
+                                <button type="button" class="button crm-sec-pill" data-doc="invoice" style="color:#be185d;">
+                                    <span class="dashicons dashicons-money-alt" style="font-size:13px; vertical-align:text-top;"></span> Honorarnote (6)
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="crm-sec-tab-pane" id="crm-sec-pane-angebot" style="display:block;">
+                            <?php crm_render_pdf_sections_manager('angebot', null, false); ?>
+                        </div>
+                        <div class="crm-sec-tab-pane" id="crm-sec-pane-kb" style="display:none;">
+                            <?php crm_render_pdf_sections_manager('kb', null, false); ?>
+                        </div>
+                        <div class="crm-sec-tab-pane" id="crm-sec-pane-tb" style="display:none;">
+                            <?php crm_render_pdf_sections_manager('tb', null, false); ?>
+                        </div>
+                        <div class="crm-sec-tab-pane" id="crm-sec-pane-diplom" style="display:none;">
+                            <?php crm_render_pdf_sections_manager('diplom', null, false); ?>
+                        </div>
+                        <div class="crm-sec-tab-pane" id="crm-sec-pane-invoice" style="display:none;">
+                            <?php crm_render_pdf_sections_manager('invoice', null, false); ?>
+                        </div>
+                    </div>
+
 
                     <!-- PDF Live-Vorschau Bereich -->
                     <div id="crm-pdf-preview-section" class="crm-preview-card" style="margin-top: 28px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden;">
@@ -1425,17 +1919,16 @@ function render_crm_settings_page()
                         <div class="crm-preview-footer" style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 8px 18px; display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; color: #64748b; flex-wrap: wrap; gap: 8px;">
                             <span>
                                 <span class="dashicons dashicons-info" style="font-size: 14px; width: 14px; height: 14px; vertical-align: middle; color: #7c3aed;"></span>
-                                <?php esc_html_e('Hinweis: Nach Bearbeitung eines Bausteins und Klick auf „Feld speichern“ aktualisiert sich diese PDF-Vorschau automatisch.', 'custom-crm'); ?>
+                                <?php esc_html_e('Hinweis: Nach Bearbeitung eines Abschnitts oder Unterabschnitts und Klick auf „Reihenfolge & Struktur anwenden“ aktualisiert sich diese PDF-Vorschau automatisch.', 'custom-crm'); ?>
                             </span>
-                            <span id="crm-preview-updated-at" style="font-weight: 500;"></span>
+                            <div style="display:flex; align-items:center; gap:12px;">
+                                <span id="crm-preview-updated-at" style="font-weight: 500;"></span>
+                                <a href="#crm-tab-pdf" class="button button-link" style="text-decoration:none; color:#6d28d9; font-size:11.5px;">
+                                    <span class="dashicons dashicons-arrow-up-alt2" style="font-size:14px; vertical-align:text-top;"></span> <?php esc_html_e('Nach oben zu den Abschnitten ↑', 'custom-crm'); ?>
+                                </a>
+                            </div>
                         </div>
                     </div>
-
-                    <p style="margin-top: 20px;">
-                        <button type="submit" name="submit_pdf" class="button button-primary button-large" style="background:#007C90; border-color:#007C90; font-size:14px; height:38px; padding:0 24px;">
-                            <span class="dashicons dashicons-saved" style="vertical-align:text-bottom;"></span> <?php esc_html_e('Alle PDF-Bausteine speichern', 'custom-crm'); ?>
-                        </button>
-                    </p>
                 </div>
             <?php endif; ?>
         </form>
@@ -1536,23 +2029,44 @@ function render_crm_settings_page()
             }
         });
 
-        // Combined Live Filter (Document Pill + Keyword Search)
+        // Combined Live Filter (Document Pill + Email Type Pill + Keyword Search)
+        let activeEmailTypeFilter = 'all';
+
         function filterFields() {
             const val = $('#crm-field-search').val().toLowerCase().trim();
             $('.crm-field-block').each(function() {
-                const docType = $(this).attr('data-doc') || 'general';
-                const title   = $(this).find('.crm-field-title-text').text().toLowerCase();
-                const badge   = $(this).find('.crm-usage-badge').text().toLowerCase();
+                const docType   = $(this).attr('data-doc') || 'general';
+                const emailType = $(this).attr('data-email-type') || 'full_email';
+                const category  = $(this).attr('data-category') || 'email';
+                const title     = $(this).find('.crm-field-title-text').text().toLowerCase();
+                const badge     = $(this).find('.crm-usage-badge, .crm-type-badge').text().toLowerCase();
 
-                const matchesDoc    = (activeDocFilter === 'all' || docType === activeDocFilter);
+                let matchesType = true;
+                if (category === 'email') {
+                    matchesType = (activeEmailTypeFilter === 'all' || emailType === activeEmailTypeFilter);
+                } else {
+                    matchesType = (activeDocFilter === 'all' || docType === activeDocFilter);
+                }
+
                 const matchesSearch = (!val || title.indexOf(val) !== -1 || badge.indexOf(val) !== -1);
 
-                if (matchesDoc && matchesSearch) {
+                if (matchesType && matchesSearch) {
                     $(this).show();
                 } else {
                     $(this).hide();
                 }
             });
+
+            // Update group container visibility
+            if (activeEmailTypeFilter === 'all') {
+                $('.crm-email-group').show();
+            } else if (activeEmailTypeFilter === 'full_email') {
+                $('.crm-email-group-full').show();
+                $('.crm-email-group-components').hide();
+            } else if (activeEmailTypeFilter === 'component') {
+                $('.crm-email-group-full').hide();
+                $('.crm-email-group-components').show();
+            }
         }
 
         // Live Filter / Search
@@ -1560,7 +2074,31 @@ function render_crm_settings_page()
             filterFields();
         });
 
-        // Document filter pills
+        // Email type filter pills (Alle / Gesamte Mails / Komponenten)
+        $(document).on('click', '.crm-email-field-filter-btn', function(e) {
+            e.preventDefault();
+            $('.crm-email-field-filter-btn').removeClass('active').css({
+                background: '',
+                color: '',
+                borderColor: '',
+                fontWeight: 'normal'
+            });
+
+            const type = $(this).data('type');
+            activeEmailTypeFilter = type;
+
+            if (type === 'all') {
+                $(this).addClass('active').css({background: '#0284c7', color: '#ffffff', borderColor: '#0284c7', fontWeight: '700'});
+            } else if (type === 'full_email') {
+                $(this).addClass('active').css({background: '#0284c7', color: '#ffffff', borderColor: '#0284c7', fontWeight: '700'});
+            } else if (type === 'component') {
+                $(this).addClass('active').css({background: '#059669', color: '#ffffff', borderColor: '#059669', fontWeight: '700'});
+            }
+
+            filterFields();
+        });
+
+        // Document filter pills (for PDF tab)
         $(document).on('click', '.crm-doc-pill', function(e) {
             e.preventDefault();
             $('.crm-doc-pill').removeClass('active');
@@ -1589,20 +2127,78 @@ function render_crm_settings_page()
             }
         });
 
-        // Add new field via AJAX
-        function addFieldAjax(category) {
+        // Click-to-copy component placeholder chip
+        $(document).on('click', '.crm-copy-chip-btn', function(e) {
+            e.preventDefault();
+            const code = $(this).attr('data-code');
+            const $btn = $(this);
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(code).then(function() {
+                    $btn.find('.crm-copy-code-text').text('✓ Kopiert!');
+                    $btn.css({'background': '#dcfce7', 'border-color': '#16a34a'});
+                    setTimeout(function() {
+                        $btn.find('.crm-copy-code-text').text(code);
+                        $btn.css({'background': '#ffffff', 'border-color': '#86efac'});
+                    }, 1600);
+                });
+            }
+        });
+
+        // Dropdown change for Category / Type Choice
+        $(document).on('change', '.crm-field-category-choice-select', function() {
+            const val = $(this).val(); // "email:full_email", "email:component", "pdf:general"
+            const parts = val.split(':');
+            const cat = parts[0];
+            const subType = parts[1] || '';
+            const block = $(this).closest('.crm-field-block');
+
+            block.find('.crm-field-category-input').val(cat);
+            block.find('.crm-field-email-type-input').val(subType);
+            block.attr('data-category', cat);
+            block.attr('data-email-type', subType);
+
+            if (cat === 'email') {
+                if (subType === 'full_email') {
+                    block.find('.crm-type-badge').replaceWith('<span class="crm-type-badge crm-type-badge-full" style="background:#e0f2fe; color:#0284c7; border:1px solid #bae6fd; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:10px; margin-left:6px;">📧 Gesamte E-Mail</span>');
+                    block.find('.crm-comp-code-pill').hide();
+                } else {
+                    block.find('.crm-type-badge').replaceWith('<span class="crm-type-badge crm-type-badge-comp" style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:10px; margin-left:6px;">🧩 Komponente</span>');
+                    block.find('.crm-comp-code-pill').show();
+                }
+            }
+        });
+
+        // Add new field via AJAX (parameterized by category and email_type)
+        function addFieldAjax(category, emailType) {
             const newIndex = fieldCount++;
+            emailType = emailType || (category === 'email' ? 'full_email' : '');
             const ajaxData = {
                 action: 'crm_add_field_editor',
                 index: newIndex,
-                category: category
+                category: category,
+                email_type: emailType
             };
             $.post(ajaxurl, ajaxData, function(response) {
-                $('#crm-fields-wrapper').append(response);
+                let targetContainer = $('#crm-fields-wrapper');
+                if (category === 'email') {
+                    if (emailType === 'component') {
+                        targetContainer = $('.crm-email-group-components .crm-email-group-items');
+                    } else {
+                        targetContainer = $('.crm-email-group-full .crm-email-group-items');
+                    }
+                }
+                if (!targetContainer.length) {
+                    targetContainer = $('#crm-fields-wrapper');
+                }
+
+                targetContainer.append(response);
                 const newBlock = $('.crm-field-block[data-index="' + newIndex + '"]');
 
-                // If adding PDF field, reset document pills to show all
-                if (category === 'pdf') {
+                if (category === 'email') {
+                    if (activeEmailTypeFilter !== 'all' && activeEmailTypeFilter !== emailType) {
+                        $('.crm-email-field-filter-btn[data-type="all"]').trigger('click');
+                    }
+                } else if (category === 'pdf') {
                     activeDocFilter = 'all';
                     $('.crm-doc-pill').removeClass('active').filter('[data-doc="all"]').addClass('active');
                     $('#crm-field-search').val('');
@@ -1619,12 +2215,12 @@ function render_crm_settings_page()
 
         $('#add-crm-email-field').on('click', function(e) {
             e.preventDefault();
-            addFieldAjax('email');
+            addFieldAjax('email', 'full_email');
         });
 
-        $('#add-crm-pdf-field').on('click', function(e) {
+        $('#add-crm-component-field').on('click', function(e) {
             e.preventDefault();
-            addFieldAjax('pdf');
+            addFieldAjax('email', 'component');
         });
 
         // Remove field
@@ -1644,7 +2240,8 @@ function render_crm_settings_page()
             const fieldBlock = btn.closest('.crm-field-block');
             const index = fieldBlock.data('index');
             const title = fieldBlock.find('input[name="crm_fields[' + index + '][title]"]').val();
-            const category = fieldBlock.find('select[name="crm_fields[' + index + '][category]"]').val();
+            const category = fieldBlock.find('.crm-field-category-input').val() || fieldBlock.attr('data-category') || 'email';
+            const emailType = fieldBlock.find('.crm-field-email-type-input').val() || fieldBlock.attr('data-email-type') || 'full_email';
             const statusIndicator = fieldBlock.find('.save-status');
 
             let content = '';
@@ -1663,22 +2260,32 @@ function render_crm_settings_page()
                 index: index,
                 title: title,
                 content: content,
-                category: category
+                category: category,
+                email_type: emailType
             };
 
             $.post(ajaxurl, ajaxData, function(response) {
                 btn.prop('disabled', false).text('<?php echo esc_js(__('Feld speichern', 'custom-crm')); ?>');
                 if (response.success) {
                     fieldBlock.find('.crm-field-title-text').text(title || '<?php echo esc_js(__('Neues Feld', 'custom-crm')); ?>');
+                    if (response.data && response.data.email_type) {
+                        fieldBlock.attr('data-email-type', response.data.email_type);
+                        if (response.data.type_badge) {
+                            fieldBlock.find('.crm-type-badge').text(response.data.type_badge);
+                        }
+                    }
                     if (response.data && response.data.usage) {
                         fieldBlock.attr('data-doc', response.data.usage.doc || 'general');
-                        fieldBlock.find('.crm-usage-badge').text(response.data.usage.badge).css('background-color', response.data.usage.color);
                     }
                     statusIndicator.text('✓ Gespeichert!').css({color: '#16a34a', fontWeight: '600'}).fadeIn().delay(2500).fadeOut();
 
                     // Auto-refresh PDF preview if on PDF tab
                     if ($('#crm-pdf-preview-section').length) {
                         loadPdfPreview(currentPreviewDoc, true);
+                    }
+                    // Auto-refresh E-Mail preview if on E-Mail tab
+                    if ($('#crm-email-preview-section').length) {
+                        loadEmailPreview(currentEmailPreviewDoc, true);
                     }
                 } else {
                     statusIndicator.text('Fehler beim Speichern.').css({color: '#dc2626'}).fadeIn().delay(2500).fadeOut();
@@ -1771,12 +2378,12 @@ function render_crm_settings_page()
             const targetDoc = $(this).attr('data-doc');
             if (targetDoc) {
                 loadPdfPreview(targetDoc, false);
-                // Also sync with document filter pill if matching
-                if ($('.crm-doc-pill[data-doc="' + targetDoc + '"]').length) {
-                    $('.crm-doc-pill').removeClass('active');
-                    $('.crm-doc-pill[data-doc="' + targetDoc + '"]').addClass('active');
-                    activeDocFilter = targetDoc;
-                    filterFields();
+                // Also sync with section pill in the organizer above
+                if ($('.crm-sec-pill[data-doc="' + targetDoc + '"]').length) {
+                    $('.crm-sec-pill').removeClass('active');
+                    $('.crm-sec-pill[data-doc="' + targetDoc + '"]').addClass('active');
+                    $('.crm-sec-tab-pane').hide();
+                    $('#crm-sec-pane-' + targetDoc).fadeIn(150);
                 }
             }
         });
@@ -1812,18 +2419,833 @@ function render_crm_settings_page()
             }
         });
 
+        // Master Header & Footer Mode sync in Settings Box
+        $(document).on('change', '.crm-master-header-mode', function() {
+            const mode = $(this).val();
+            const $box = $(this).closest('.crm-pdf-master-hf-box');
+            const $logoCb = $box.find('input[name="crm_pdf_master_hf[header_logo]"]');
+            const $addrCb = $box.find('input[name="crm_pdf_master_hf[header_address]"]');
+
+            if (mode === 'full') {
+                $logoCb.prop('checked', true);
+                $addrCb.prop('checked', true);
+            } else if (mode === 'logo_only') {
+                $logoCb.prop('checked', true);
+                $addrCb.prop('checked', false);
+            } else if (mode === 'address_only') {
+                $logoCb.prop('checked', false);
+                $addrCb.prop('checked', true);
+            } else if (mode === 'none') {
+                $logoCb.prop('checked', false);
+                $addrCb.prop('checked', false);
+            }
+        });
+
+        $(document).on('change', '.crm-master-footer-mode', function() {
+            const mode = $(this).val();
+            const $box = $(this).closest('.crm-pdf-master-hf-box');
+            const $compCb = $box.find('input[name="crm_pdf_master_hf[footer_company]"]');
+            const $pageCb = $box.find('input[name="crm_pdf_master_hf[footer_page_num]"]');
+            const $dateCb = $box.find('input[name="crm_pdf_master_hf[footer_date]"]');
+
+            if (mode === 'standard') {
+                $compCb.prop('checked', true);
+                $pageCb.prop('checked', true);
+                $dateCb.prop('checked', false);
+            } else if (mode === 'full') {
+                $compCb.prop('checked', true);
+                $pageCb.prop('checked', true);
+                $dateCb.prop('checked', true);
+            } else if (mode === 'page_numbers_only') {
+                $compCb.prop('checked', false);
+                $pageCb.prop('checked', true);
+                $dateCb.prop('checked', false);
+            } else if (mode === 'company_only') {
+                $compCb.prop('checked', true);
+                $pageCb.prop('checked', false);
+                $dateCb.prop('checked', false);
+            } else if (mode === 'none') {
+                $compCb.prop('checked', false);
+                $pageCb.prop('checked', false);
+                $dateCb.prop('checked', false);
+            }
+        });
+
+        // ==========================================
+        // PDF SECTIONS DRAG & DROP CONTROLLER
+        // ==========================================
+        $(document).on('click', '.crm-sec-pill', function(e) {
+            e.preventDefault();
+            $('.crm-sec-pill').removeClass('active').css({borderColor: '', color: '', fontWeight: 'normal'});
+            $(this).addClass('active').css({borderColor: '#7c3aed', color: '#6d28d9', fontWeight: '600'});
+            const targetDoc = $(this).data('doc');
+            $('.crm-sec-tab-pane').hide();
+            $('#crm-sec-pane-' + targetDoc).fadeIn(120);
+
+            initCrmSortables();
+
+            if (typeof loadPdfPreview === 'function') {
+                loadPdfPreview(targetDoc, false);
+            }
+        });
+
+        function initCrmSortables() {
+            if (typeof $.fn.sortable !== 'undefined') {
+                $('.crm-sortable-sections').sortable({
+                    handle: '.crm-section-drag-handle',
+                    items: '> li.crm-pdf-section-item',
+                    placeholder: 'crm-section-sortable-placeholder',
+                    axis: 'y',
+                    cursor: 'grabbing',
+                    opacity: 0.88,
+                    tolerance: 'pointer'
+                });
+
+                $('.crm-sortable-subsections').sortable({
+                    handle: '.crm-sub-drag-handle',
+                    items: '> li.crm-pdf-subsection-item',
+                    placeholder: 'crm-sub-sortable-placeholder',
+                    axis: 'y',
+                    cursor: 'grabbing',
+                    opacity: 0.88,
+                    tolerance: 'pointer'
+                });
+
+                if ($('#crm-fields-wrapper').length) {
+                    $('#crm-fields-wrapper').sortable({
+                        handle: '.crm-field-drag-handle',
+                        items: '> .crm-field-block',
+                        placeholder: 'crm-field-sortable-placeholder',
+                        axis: 'y',
+                        cursor: 'grabbing',
+                        opacity: 0.88,
+                        tolerance: 'pointer'
+                    });
+                }
+            }
+        }
+        initCrmSortables();
+
+        $(document).on('change', '.crm-section-checkbox', function() {
+            const item = $(this).closest('.crm-pdf-section-item');
+            if ($(this).is(':checked')) {
+                item.removeClass('is-disabled').addClass('is-active').css('opacity', '1');
+            } else {
+                item.removeClass('is-active').addClass('is-disabled').css('opacity', '0.55');
+            }
+        });
+
+        $(document).on('click', '.crm-move-up-btn', function(e) {
+            e.preventDefault();
+            const item = $(this).closest('.crm-pdf-section-item');
+            const prev = item.prev('.crm-pdf-section-item');
+            if (prev.length) {
+                item.insertBefore(prev).hide().fadeIn(150);
+            }
+        });
+        $(document).on('click', '.crm-move-down-btn', function(e) {
+            e.preventDefault();
+            const item = $(this).closest('.crm-pdf-section-item');
+            const next = item.next('.crm-pdf-section-item');
+            if (next.length) {
+                item.insertAfter(next).hide().fadeIn(150);
+            }
+        });
+
+        $(document).on('click', '.crm-save-sections-btn', function(e) {
+            e.preventDefault();
+            const btn = $(this);
+            const manager = btn.closest('.crm-pdf-sections-manager');
+            const docType = manager.data('doc');
+            const entryId = manager.data('entry') || 0;
+            const statusEl = manager.find('.crm-sections-status');
+
+            let sections = [];
+            if (typeof window.crmGetHierarchicalSections === 'function') {
+                sections = window.crmGetHierarchicalSections(manager);
+            } else {
+                manager.find('> .crm-sortable-sections > .crm-pdf-section-item').each(function() {
+                    const sec = $(this);
+                    const isCustom = (sec.data('custom') == 1 || sec.attr('data-custom') === '1') ? 1 : 0;
+                    const key = sec.data('key') || sec.attr('data-key');
+                    const enabled = sec.find('> .crm-section-header-row .crm-section-checkbox').is(':checked') ? 1 : 0;
+                    const title = sec.data('title') || sec.find('.crm-section-title').text().trim();
+                    const badge = sec.data('badge') || '';
+                    const color = sec.data('color') || '';
+                    const content = sec.data('content') || '';
+
+                    const subsections = [];
+                    sec.find('.crm-sortable-subsections > .crm-pdf-subsection-item').each(function() {
+                        const sub = $(this);
+                        const subKey = sub.data('sub-key') || sub.attr('data-sub-key');
+                        const subEnabled = sub.find('.crm-sub-checkbox').is(':checked') ? 1 : 0;
+                        const subCustom = (sub.data('custom') == 1 || sub.attr('data-custom') === '1') ? 1 : 0;
+                        let subTitle = sub.data('title') || sub.find('.crm-sub-title').text().trim();
+                        let subContent = sub.data('content');
+                        if (typeof subContent === 'undefined') {
+                            subContent = sub.attr('data-content') || '';
+                        }
+
+                        const $inputTitle = sub.find('.crm-sub-input-title');
+                        const $inputContent = sub.find('.crm-sub-input-content');
+                        if ($inputTitle.length && $inputTitle.val().trim()) {
+                            subTitle = $inputTitle.val().trim();
+                        }
+                        if ($inputContent.length) {
+                            subContent = $inputContent.val();
+                        }
+
+                        if (subKey) {
+                            subsections.push({
+                                key: subKey,
+                                enabled: subEnabled,
+                                is_custom: subCustom,
+                                title: subTitle,
+                                content: subContent
+                            });
+                        }
+                    });
+
+                    // Header & Footer
+                    let headerMode = sec.find('.crm-hf-header-mode').val() || sec.data('header-mode') || sec.attr('data-header-mode') || 'master';
+                    let headerLogo = 0;
+                    const $hLogoCb = sec.find('.crm-hf-header-logo');
+                    if ($hLogoCb.length) {
+                        headerLogo = $hLogoCb.is(':checked') ? 1 : 0;
+                    } else {
+                        headerLogo = (sec.data('header-logo') == 1 || sec.attr('data-header-logo') === '1') ? 1 : 0;
+                    }
+
+                    let headerAddress = 0;
+                    const $hAddrCb = sec.find('.crm-hf-header-address');
+                    if ($hAddrCb.length) {
+                        headerAddress = $hAddrCb.is(':checked') ? 1 : 0;
+                    } else {
+                        headerAddress = (sec.data('header-address') == 1 || sec.attr('data-header-address') === '1') ? 1 : 0;
+                    }
+
+                    let headerCustom = '';
+                    const $hCustomInput = sec.find('.crm-hf-header-custom');
+                    if ($hCustomInput.length) {
+                        headerCustom = $hCustomInput.val();
+                    } else {
+                        headerCustom = sec.data('header-custom') || sec.attr('data-header-custom') || '';
+                    }
+
+                    let footerMode = sec.find('.crm-hf-footer-mode').val() || sec.data('footer-mode') || sec.attr('data-footer-mode') || 'master';
+                    let footerCompany = 0;
+                    const $fCompCb = sec.find('.crm-hf-footer-company');
+                    if ($fCompCb.length) {
+                        footerCompany = $fCompCb.is(':checked') ? 1 : 0;
+                    } else {
+                        footerCompany = (sec.data('footer-company') == 1 || sec.attr('data-footer-company') === '1') ? 1 : 0;
+                    }
+
+                    let footerPageNum = 0;
+                    const $fPageCb = sec.find('.crm-hf-footer-page-num');
+                    if ($fPageCb.length) {
+                        footerPageNum = $fPageCb.is(':checked') ? 1 : 0;
+                    } else {
+                        footerPageNum = (sec.data('footer-page-num') == 1 || sec.attr('data-footer-page-num') === '1') ? 1 : 0;
+                    }
+
+                    let footerDate = 0;
+                    const $fDateCb = sec.find('.crm-hf-footer-date');
+                    if ($fDateCb.length) {
+                        footerDate = $fDateCb.is(':checked') ? 1 : 0;
+                    } else {
+                        footerDate = (sec.data('footer-date') == 1 || sec.attr('data-footer-date') === '1') ? 1 : 0;
+                    }
+
+                    let footerCustom = '';
+                    const $fCustomInput = sec.find('.crm-hf-footer-custom');
+                    if ($fCustomInput.length) {
+                        footerCustom = $fCustomInput.val();
+                    } else {
+                        footerCustom = sec.data('footer-custom') || sec.attr('data-footer-custom') || '';
+                    }
+
+                    if (key) {
+                        sections.push({
+                            key: key,
+                            enabled: enabled,
+                            is_custom: isCustom,
+                            title: title,
+                            badge: badge,
+                            color: color,
+                            content: content,
+                            header_mode: headerMode,
+                            header_logo: headerLogo,
+                            header_address: headerAddress,
+                            header_custom: headerCustom,
+                            footer_mode: footerMode,
+                            footer_company: footerCompany,
+                            footer_page_num: footerPageNum,
+                            footer_date: footerDate,
+                            footer_custom: footerCustom,
+                            subsections: subsections
+                        });
+                    }
+                });
+            }
+
+            btn.prop('disabled', true).text('<?php echo esc_js(__('Speichern...', 'custom-crm')); ?>');
+
+            const postNonce = window.crmPreviewNonce || (typeof crmData !== 'undefined' ? crmData.nonce : '<?php echo wp_create_nonce('crm_ajax_nonce'); ?>');
+
+            $.post(ajaxurl, {
+                action: 'crm_save_pdf_section_order',
+                nonce: postNonce,
+                doc_type: docType,
+                entry_id: entryId,
+                sections: sections
+            }, function(res) {
+                btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align:text-top; font-size:14px;"></span> <?php echo esc_js(__('Reihenfolge anwenden', 'custom-crm')); ?>');
+                if (res.success) {
+                    statusEl.text('✓ <?php echo esc_js(__('Gespeichert!', 'custom-crm')); ?>').css({color: '#16a34a'}).fadeIn().delay(2000).fadeOut();
+                    if (typeof loadPdfPreview === 'function') {
+                        loadPdfPreview(docType, true);
+                    }
+                } else {
+                    const msg = (res.data && res.data.message) ? res.data.message : '<?php echo esc_js(__('Fehler beim Speichern', 'custom-crm')); ?>';
+                    statusEl.text(msg).css({color: '#dc2626'}).fadeIn().delay(2500).fadeOut();
+                }
+            }).fail(function() {
+                btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align:text-top; font-size:14px;"></span> <?php echo esc_js(__('Reihenfolge anwenden', 'custom-crm')); ?>');
+                statusEl.text('<?php echo esc_js(__('Serverfehler', 'custom-crm')); ?>').css({color: '#dc2626'}).fadeIn().delay(2500).fadeOut();
+            });
+        });
+
+        $(document).on('click', '.crm-reset-sections-btn', function(e) {
+            e.preventDefault();
+            const btn = $(this);
+            const manager = btn.closest('.crm-pdf-sections-manager');
+            const docType = manager.data('doc');
+            const entryId = manager.data('entry') || 0;
+            const isSidebar = manager.hasClass('crm-sections-sidebar') ? 1 : 0;
+            const parentContainer = manager.parent();
+
+            const postNonce = window.crmPreviewNonce || (typeof crmData !== 'undefined' ? crmData.nonce : '<?php echo wp_create_nonce('crm_ajax_nonce'); ?>');
+
+            btn.prop('disabled', true);
+
+            $.post(ajaxurl, {
+                action: 'crm_reset_pdf_section_order',
+                nonce: postNonce,
+                doc_type: docType,
+                entry_id: entryId,
+                is_sidebar: isSidebar
+            }, function(res) {
+                btn.prop('disabled', false);
+                if (res.success && res.data && res.data.html) {
+                    parentContainer.html(res.data.html);
+                    initCrmSortables();
+                    if (typeof loadPdfPreview === 'function') {
+                        loadPdfPreview(docType, true);
+                    }
+                }
+            }).fail(function() {
+                btn.prop('disabled', false);
+            });
+        });
+
+        // ==========================================
+        // E-MAIL LIVE PREVIEW CONTROLLER
+        // ==========================================
+        let currentEmailPreviewDoc = 'angebot';
+        let currentEmailViewport   = 'desktop';
+        let isEmailPreviewExpanded = false;
+
+        const emailDocTitles = {
+            'angebot': '<?php echo esc_js(__('Kursangebot & Beratung', 'custom-crm')); ?>',
+            'kb': '<?php echo esc_js(__('Kurszeitenbestätigung (KB)', 'custom-crm')); ?>',
+            'angebot_kb': '<?php echo esc_js(__('Angebot & Kurszeiten (Kombi)', 'custom-crm')); ?>',
+            'anmeldung': '<?php echo esc_js(__('Anmeldebestätigung & Buchung', 'custom-crm')); ?>',
+            'tb': '<?php echo esc_js(__('Teilnahmebestätigung (TB)', 'custom-crm')); ?>',
+            'diplom': '<?php echo esc_js(__('Diplom / Zertifikat', 'custom-crm')); ?>',
+            'invoice': '<?php echo esc_js(__('Honorarnote / Rechnung', 'custom-crm')); ?>'
+        };
+
+        function loadEmailPreview(docType, forceReload) {
+            if (!$('#crm-email-preview-section').length) {
+                return;
+            }
+
+            if (!docType || docType === 'all' || docType === 'general') {
+                docType = currentEmailPreviewDoc || 'angebot';
+            }
+
+            currentEmailPreviewDoc = docType;
+
+            // Update UI title and switcher pills
+            $('#crm-email-preview-doc-title').text(emailDocTitles[docType] || docType.toUpperCase());
+            $('.crm-email-preview-switch-btn').removeClass('active');
+            $('.crm-email-preview-switch-btn[data-doc="' + docType + '"]').addClass('active');
+
+            // Show loading overlay
+            $('#crm-email-preview-error').hide();
+            $('#crm-email-preview-loading').fadeIn(150);
+            $('#crm-email-preview-reload-btn .crm-email-reload-icon').addClass('spin');
+
+            const previewNonce = window.crmPreviewNonce || (typeof crmData !== 'undefined' && crmData.nonce ? crmData.nonce : '<?php echo wp_create_nonce('crm_ajax_nonce'); ?>');
+
+            // Standalone iframe URL
+            const bustParam = (forceReload ? '&reload=' : '&t=') + Date.now();
+            const frameUrl  = ajaxurl + '?action=crm_render_email_preview_frame&doc_type=' + encodeURIComponent(docType) + '&nonce=' + encodeURIComponent(previewNonce) + bustParam;
+
+            $('#crm-email-preview-iframe').attr('src', frameUrl);
+            $('#crm-email-preview-newtab-btn').attr('href', frameUrl);
+            $('#crm-email-preview-updated-at').text('<?php echo esc_js(__('Stand: ', 'custom-crm')); ?>' + new Date().toLocaleTimeString());
+
+            // Also fetch preview data via JSON for sample info and HTML copy
+            $.post(ajaxurl, {
+                action: 'crm_get_email_preview_data',
+                nonce: previewNonce,
+                doc_type: docType
+            }, function(res) {
+                if (res.success && res.data) {
+                    if (res.data.sample_info) {
+                        $('#crm-email-preview-sample-info').text(res.data.sample_info);
+                    }
+                    if (res.data.html) {
+                        window.lastEmailPreviewHtml = res.data.html;
+                    }
+                }
+            });
+
+            $('#crm-email-preview-iframe').off('load').on('load', function() {
+                $('#crm-email-preview-loading').fadeOut(200);
+            });
+            setTimeout(function() {
+                $('#crm-email-preview-loading').fadeOut(200);
+            }, 1800);
+            setTimeout(function() {
+                $('#crm-email-preview-reload-btn .crm-email-reload-icon').removeClass('spin');
+            }, 500);
+        }
+
+        // Viewport Switcher (Desktop 600px vs Mobile 375px vs Full 100%)
+        $(document).on('click', '.crm-viewport-btn', function(e) {
+            e.preventDefault();
+            $('.crm-viewport-btn').removeClass('active').css({background: 'transparent', color: '#475569', fontWeight: 'normal'});
+            $(this).addClass('active').css({background: '#ffffff', color: '#0f172a', fontWeight: '600'});
+            const vp = $(this).data('viewport');
+            currentEmailViewport = vp;
+            const $wrapper = $('#crm-email-iframe-wrapper');
+            if (vp === 'mobile') {
+                $wrapper.css({'width': '375px', 'max-width': '100%'});
+            } else if (vp === 'full') {
+                $wrapper.css({'width': '100%', 'max-width': '100%'});
+            } else {
+                $wrapper.css({'width': '600px', 'max-width': '100%'});
+            }
+        });
+
+        // Email Preview Reload
+        $('#crm-email-preview-reload-btn').on('click', function(e) {
+            e.preventDefault();
+            loadEmailPreview(currentEmailPreviewDoc, true);
+        });
+
+        // Email Preview Height Expand / Contract
+        $('#crm-email-preview-toggle-size-btn').on('click', function(e) {
+            e.preventDefault();
+            isEmailPreviewExpanded = !isEmailPreviewExpanded;
+            const newHeight = isEmailPreviewExpanded ? '920px' : '620px';
+            $('#crm-email-preview-iframe').css('height', newHeight);
+            $('.crm-email-preview-body').css('min-height', newHeight);
+            $(this).find('.dashicons').toggleClass('dashicons-editor-expand dashicons-editor-contract');
+        });
+
+        // Copy HTML to Clipboard
+        $('#crm-email-copy-html-btn').on('click', function(e) {
+            e.preventDefault();
+            const btn = $(this);
+            const htmlToCopy = window.lastEmailPreviewHtml || '';
+            if (!htmlToCopy) {
+                alert('<?php echo esc_js(__('Kein HTML-Inhalt verfügbar. Bitte Vorschau neu laden.', 'custom-crm')); ?>');
+                return;
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(htmlToCopy).then(function() {
+                    btn.html('✓ <?php echo esc_js(__('Kopiert!', 'custom-crm')); ?>');
+                    setTimeout(function() {
+                        btn.html('<span class="dashicons dashicons-clipboard" style="font-size:14px; vertical-align:text-top;"></span> <?php echo esc_js(__('HTML kopieren', 'custom-crm')); ?>');
+                    }, 2000);
+                });
+            } else {
+                const $temp = $('<textarea>');
+                $('body').append($temp);
+                $temp.val(htmlToCopy).select();
+                document.execCommand('copy');
+                $temp.remove();
+                btn.html('✓ <?php echo esc_js(__('Kopiert!', 'custom-crm')); ?>');
+                setTimeout(function() {
+                    btn.html('<span class="dashicons dashicons-clipboard" style="font-size:14px; vertical-align:text-top;"></span> <?php echo esc_js(__('HTML kopieren', 'custom-crm')); ?>');
+                }, 2000);
+            }
+        });
+
+        // Send Test Mail
+        $('#crm-email-send-test-btn').on('click', function(e) {
+            e.preventDefault();
+            const btn = $(this);
+            const origHtml = btn.html();
+            const testEmail = prompt('<?php echo esc_js(__('An welche E-Mail-Adresse soll die Test-Vorschau gesendet werden?', 'custom-crm')); ?>', '<?php echo esc_js(wp_get_current_user()->user_email); ?>');
+            if (!testEmail) return;
+
+            btn.prop('disabled', true).text('<?php echo esc_js(__('Senden...', 'custom-crm')); ?>');
+            const postNonce = window.crmPreviewNonce || (typeof crmData !== 'undefined' ? crmData.nonce : '<?php echo wp_create_nonce('crm_ajax_nonce'); ?>');
+
+            $.post(ajaxurl, {
+                action: 'crm_send_email_preview_test',
+                nonce: postNonce,
+                doc_type: currentEmailPreviewDoc,
+                recipient: testEmail
+            }, function(res) {
+                btn.prop('disabled', false).html(origHtml);
+                if (res.success) {
+                    alert('✓ ' + (res.data && res.data.message ? res.data.message : '<?php echo esc_js(__('Test-Mail erfolgreich versendet!', 'custom-crm')); ?>'));
+                } else {
+                    alert('❌ ' + (res.data && res.data.message ? res.data.message : '<?php echo esc_js(__('Fehler beim Versand.', 'custom-crm')); ?>'));
+                }
+            }).fail(function() {
+                btn.prop('disabled', false).html(origHtml);
+                alert('❌ <?php echo esc_js(__('Serverfehler beim Versand der Test-Mail.', 'custom-crm')); ?>');
+            });
+        });
+
+        // Switch preview doc via header switcher buttons
+        $(document).on('click', '.crm-email-preview-switch-btn', function(e) {
+            e.preventDefault();
+            const targetDoc = $(this).attr('data-doc');
+            if (targetDoc) {
+                loadEmailPreview(targetDoc, false);
+                // Sync with organizer pill above
+                if ($('.crm-email-sec-pill[data-doc="' + targetDoc + '"]').length) {
+                    $('.crm-email-sec-pill').removeClass('active');
+                    $('.crm-email-sec-pill[data-doc="' + targetDoc + '"]').addClass('active');
+                    $('.crm-email-sec-tab-pane').hide();
+                    $('#crm-email-sec-pane-' + targetDoc).fadeIn(150);
+                }
+            }
+        });
+
+        // Switch organizer tab via top pills
+        $(document).on('click', '.crm-email-sec-pill', function(e) {
+            e.preventDefault();
+            $('.crm-email-sec-pill').removeClass('active').css({borderColor: '', color: '', fontWeight: 'normal'});
+            $(this).addClass('active').css({borderColor: '#0284c7', color: '#0369a1', fontWeight: '600'});
+            const targetDoc = $(this).data('doc');
+            $('.crm-email-sec-tab-pane').hide();
+            $('#crm-email-sec-pane-' + targetDoc).fadeIn(120);
+
+            initEmailSortables();
+
+            if (typeof loadEmailPreview === 'function') {
+                loadEmailPreview(targetDoc, false);
+            }
+        });
+
+        // ==========================================
+        // E-MAIL SECTIONS DRAG & DROP CONTROLLER
+        // ==========================================
+        function initEmailSortables() {
+            if (typeof $.fn.sortable !== 'undefined') {
+                $('.crm-sortable-email-sections').sortable({
+                    handle: '.crm-email-sec-drag-handle',
+                    items: '> li.crm-email-section-item',
+                    placeholder: 'crm-email-sec-sortable-placeholder',
+                    axis: 'y',
+                    cursor: 'grabbing',
+                    opacity: 0.88,
+                    tolerance: 'pointer'
+                });
+            }
+        }
+        initEmailSortables();
+
+        // Initialize Email Section Sortables (unified with crm-admin.js)
+        if (typeof window.initEmailSectionSortables === 'function') {
+            window.initEmailSectionSortables();
+        } else if (typeof $.fn.sortable !== 'undefined') {
+            $('.crm-sortable-email-sections').sortable({
+                handle: '.crm-email-sec-drag-handle',
+                items: '> li.crm-email-section-item',
+                placeholder: 'crm-email-sec-sortable-placeholder',
+                axis: 'y',
+                cursor: 'grabbing',
+                opacity: 0.88,
+                tolerance: 'pointer'
+            });
+        }
+
+        // Save Email Sections Order
+        $(document).on('click', '.crm-save-email-sections-btn', function(e) {
+            e.preventDefault();
+            const btn = $(this);
+            const manager = btn.closest('.crm-email-sections-manager');
+            const docType = manager.data('doc');
+            const entryId = manager.data('entry') || 0;
+            const statusEl = manager.find('.crm-email-sections-status');
+
+            const sections = [];
+            manager.find('> .crm-sortable-email-sections > .crm-email-section-item').each(function() {
+                const item = $(this);
+                const key = item.data('key') || item.attr('data-key');
+                const enabled = item.find('> .crm-email-sec-header-row .crm-email-sec-checkbox').is(':checked') ? 1 : 0;
+                const isCustom = (item.data('custom') == 1 || item.attr('data-custom') === '1') ? 1 : 0;
+                let title = item.data('title') || item.find('.crm-email-sec-title-text').text().trim();
+                const badge = item.data('badge') || '';
+                const color = item.data('color') || '#0284c7';
+
+                const $inputTitle = item.find('.crm-email-sec-input-title');
+                const $inputContent = item.find('.crm-email-sec-input-content');
+                if ($inputTitle.length && $inputTitle.val().trim()) {
+                    title = $inputTitle.val().trim();
+                }
+                let content = '';
+                if ($inputContent.length) {
+                    content = $inputContent.val();
+                }
+
+                if (key) {
+                    sections.push({
+                        key: key,
+                        enabled: enabled,
+                        is_custom: isCustom,
+                        title: title,
+                        badge: badge,
+                        color: color,
+                        content: content
+                    });
+                }
+            });
+
+            btn.prop('disabled', true).text('<?php echo esc_js(__('Speichern...', 'custom-crm')); ?>');
+            const postNonce = window.crmPreviewNonce || (typeof crmData !== 'undefined' ? crmData.nonce : '<?php echo wp_create_nonce('crm_ajax_nonce'); ?>');
+
+            $.post(ajaxurl, {
+                action: 'crm_save_email_section_order',
+                nonce: postNonce,
+                doc_type: docType,
+                entry_id: entryId,
+                sections: sections
+            }, function(res) {
+                btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align:text-top; font-size:14px;"></span> <?php echo esc_js(__('E-Mail-Reihenfolge anwenden', 'custom-crm')); ?>');
+                if (res.success) {
+                    statusEl.text('✓ <?php echo esc_js(__('Gespeichert!', 'custom-crm')); ?>').css({color: '#16a34a'}).fadeIn().delay(2000).fadeOut();
+                    if (typeof loadEmailPreview === 'function') {
+                        loadEmailPreview(docType, true);
+                    }
+                } else {
+                    const msg = (res.data && res.data.message) ? res.data.message : '<?php echo esc_js(__('Fehler beim Speichern', 'custom-crm')); ?>';
+                    statusEl.text(msg).css({color: '#dc2626'}).fadeIn().delay(2500).fadeOut();
+                }
+            }).fail(function() {
+                btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align:text-top; font-size:14px;"></span> <?php echo esc_js(__('E-Mail-Reihenfolge anwenden', 'custom-crm')); ?>');
+                statusEl.text('<?php echo esc_js(__('Serverfehler', 'custom-crm')); ?>').css({color: '#dc2626'}).fadeIn().delay(2500).fadeOut();
+            });
+        });
+
+        // Reset Email Sections
+        $(document).on('click', '.crm-reset-email-sections-btn', function(e) {
+            e.preventDefault();
+            const btn = $(this);
+            const manager = btn.closest('.crm-email-sections-manager');
+            const docType = manager.data('doc');
+            const entryId = manager.data('entry') || 0;
+            const isSidebar = manager.hasClass('crm-email-sections-sidebar') ? 1 : 0;
+            const parentContainer = manager.parent();
+
+            const postNonce = window.crmPreviewNonce || (typeof crmData !== 'undefined' ? crmData.nonce : '<?php echo wp_create_nonce('crm_ajax_nonce'); ?>');
+            btn.prop('disabled', true);
+
+            $.post(ajaxurl, {
+                action: 'crm_reset_email_section_order',
+                nonce: postNonce,
+                doc_type: docType,
+                entry_id: entryId,
+                is_sidebar: isSidebar
+            }, function(res) {
+                btn.prop('disabled', false);
+                if (res.success && res.data && res.data.html) {
+                    parentContainer.html(res.data.html);
+                    initEmailSortables();
+                    if (typeof loadEmailPreview === 'function') {
+                        loadEmailPreview(docType, true);
+                    }
+                }
+            }).fail(function() {
+                btn.prop('disabled', false);
+            });
+        });
+
+        // "Vorschau" button on individual E-Mail field block
+        $(document).on('click', '.crm-preview-this-email', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const docType = $(this).attr('data-doc') || 'angebot';
+            loadEmailPreview(docType, false);
+            if ($('#crm-email-preview-section').length) {
+                $('html, body').animate({
+                    scrollTop: $('#crm-email-preview-section').offset().top - 40
+                }, 350);
+            }
+        });
+
+        // Placeholder chip insertion into editor in field blocks
+        $(document).on('click', '.crm-insert-chip-to-editor', function(e) {
+            e.preventDefault();
+            const code = $(this).attr('data-code');
+            const fieldBlock = $(this).closest('.crm-field-block');
+            const textarea = fieldBlock.find('textarea[name*="[content]"]');
+            if (!textarea.length || !code) return;
+
+            const editorId = textarea.attr('id');
+            let inserted = false;
+
+            // 1. Try TinyMCE if active and not in HTML mode
+            if (typeof tinymce !== 'undefined') {
+                const editor = tinymce.get(editorId);
+                if (editor && !editor.isHidden()) {
+                    editor.execCommand('mceInsertContent', false, code);
+                    inserted = true;
+                }
+            }
+
+            // 2. Fallback to raw textarea cursor insertion
+            if (!inserted && textarea.length) {
+                const domEl = textarea[0];
+                const startPos = domEl.selectionStart || 0;
+                const endPos = domEl.selectionEnd || 0;
+                const val = domEl.value;
+                domEl.value = val.substring(0, startPos) + code + val.substring(endPos);
+                domEl.selectionStart = domEl.selectionEnd = startPos + code.length;
+                domEl.focus();
+                $(domEl).trigger('input').trigger('change');
+            }
+
+            // Visual feedback on chip button
+            const $btn = $(this);
+            $btn.css({'background-color': '#0284c7', 'color': '#ffffff', 'border-color': '#0284c7'});
+            setTimeout(function() {
+                $btn.css({'background-color': '#ffffff', 'color': '#0369a1', 'border-color': '#7dd3fc'});
+            }, 300);
+        });
+
+        // Placeholder chip insertion in Section manager
+        $(document).on('click', '.crm-email-insert-chip', function(e) {
+            e.preventDefault();
+            const code = $(this).attr('data-code');
+            const textarea = $(this).closest('.crm-email-sec-body-row').find('.crm-email-sec-input-content');
+            if (textarea.length && code) {
+                const domEl = textarea[0];
+                const startPos = domEl.selectionStart || 0;
+                const endPos = domEl.selectionEnd || 0;
+                const val = domEl.value;
+                domEl.value = val.substring(0, startPos) + code + val.substring(endPos);
+                domEl.selectionStart = domEl.selectionEnd = startPos + code.length;
+                domEl.focus();
+                $(domEl).trigger('input').trigger('change');
+            }
+        });
+
         // Initial preview load if on PDF tab
         if ($('#crm-pdf-preview-section').length) {
-            const initialDoc = ($('.crm-doc-pill.active').length && $('.crm-doc-pill.active').attr('data-doc') !== 'all')
-                ? $('.crm-doc-pill.active').attr('data-doc')
-                : 'kb';
+            const initialDoc = $('.crm-sec-pill.active').length
+                ? $('.crm-sec-pill.active').attr('data-doc')
+                : 'angebot';
             loadPdfPreview(initialDoc, false);
+        }
+
+        // Initial preview load if on Email tab
+        if ($('#crm-email-preview-section').length) {
+            const initialEmailDoc = $('.crm-email-sec-pill.active').length
+                ? $('.crm-email-sec-pill.active').attr('data-doc')
+                : 'angebot';
+            loadEmailPreview(initialEmailDoc, false);
         }
     });
     </script>
 
     <!-- Page Specific Styles -->
     <style>
+        .crm-pdf-section-item:hover {
+            box-shadow: 0 3px 8px rgba(0,0,0,0.08) !important;
+            border-color: #94a3b8 !important;
+        }
+        .crm-pdf-section-item.is-disabled {
+            opacity: 0.55;
+            background: #f8fafc !important;
+        }
+        .crm-section-sortable-placeholder {
+            height: 48px;
+            background: #f0fdf4;
+            border: 2px dashed #22c55e;
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+        .crm-field-sortable-placeholder {
+            height: 52px;
+            background: #ede9fe;
+            border: 2px dashed #7c3aed;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        .crm-email-section-item:hover {
+            box-shadow: 0 3px 8px rgba(0,0,0,0.08) !important;
+            border-color: #94a3b8 !important;
+        }
+        .crm-email-section-item.is-disabled {
+            opacity: 0.55;
+            background: #f8fafc !important;
+        }
+        .crm-email-sec-sortable-placeholder {
+            height: 48px;
+            background: #f0fdf4;
+            border: 2px dashed #0284c7;
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+        .crm-email-preview-switch-btn {
+            border-color: #cbd5e1 !important;
+            background: #ffffff !important;
+            color: #475569 !important;
+            font-size: 11.5px !important;
+            height: 28px !important;
+            line-height: 26px !important;
+            padding: 0 8px !important;
+            border-radius: 4px !important;
+            cursor: pointer !important;
+            transition: all 0.12s ease !important;
+        }
+        .crm-email-preview-switch-btn:hover {
+            color: #0284c7 !important;
+            border-color: #0284c7 !important;
+        }
+        .crm-email-preview-switch-btn.active {
+            background: #0284c7 !important;
+            border-color: #0284c7 !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+        }
+        .crm-email-sec-pill.active {
+            border-color: #0284c7 !important;
+            color: #0369a1 !important;
+            font-weight: 600 !important;
+            background: #f0f9ff !important;
+        }
+        .crm-insert-chip-to-editor:hover {
+            background: #0284c7 !important;
+            color: #ffffff !important;
+            border-color: #0284c7 !important;
+        }
+        .crm-preview-this-email:hover {
+            background: #0284c7 !important;
+            color: #ffffff !important;
+            border-color: #0284c7 !important;
+        }
         .crm-settings-wrap {
             max-width: 1100px;
         }
@@ -2112,19 +3534,41 @@ function crm_render_placeholders_cheat_sheet(string $type = 'email')
  * @param string $content
  * @param string $category 'email' or 'pdf'
  */
-function crm_render_editor_field($index, $title, $content, $category = 'email')
+function crm_render_editor_field($index, $title, $content, $category = 'email', $email_type = null)
 {
     $usage = crm_get_field_usage_info($title);
     $doc   = $usage['doc'] ?? ($category === 'email' ? 'email' : 'general');
+    if ($category === 'email' && $email_type === null) {
+        $email_type = crm_get_email_field_type($title);
+    }
     ?>
-    <div class="crm-field-block" data-index="<?php echo esc_attr($index); ?>" data-doc="<?php echo esc_attr($doc); ?>">
+    <div class="crm-field-block" data-index="<?php echo esc_attr($index); ?>" data-doc="<?php echo esc_attr($doc); ?>" data-category="<?php echo esc_attr($category); ?>" data-email-type="<?php echo esc_attr($email_type ?: 'full_email'); ?>">
         <div class="crm-field-header">
             <h3>
+                <span class="dashicons dashicons-menu crm-field-drag-handle" title="<?php esc_attr_e('Verschieben', 'custom-crm'); ?>" style="color: #94a3b8; cursor: grab; font-size:16px; margin-right: 4px; vertical-align: middle;"></span>
                 <span class="dashicons dashicons-arrow-right crm-accordion-arrow" style="color: #64748b;"></span>
                 <span class="crm-field-title-text"><?php echo $title ? esc_html($title) : esc_html__('Neuer Textbaustein', 'custom-crm'); ?></span>
-                <span class="crm-usage-badge" style="background-color: <?php echo esc_attr($usage['color']); ?>;">
-                    <?php echo esc_html($usage['badge']); ?>
-                </span>
+                
+                <?php if ($category === 'email') : ?>
+                    <?php if ($email_type === 'full_email') : ?>
+                        <span class="crm-type-badge crm-type-badge-full" style="background:#e0f2fe; color:#0284c7; border:1px solid #bae6fd; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:10px; margin-left:6px;">
+                            📧 <?php esc_html_e('Gesamte E-Mail', 'custom-crm'); ?>
+                        </span>
+                    <?php else : 
+                        $comp_code = crm_get_component_placeholder_for_title($title);
+                    ?>
+                        <span class="crm-type-badge crm-type-badge-comp" style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:10px; margin-left:6px;">
+                            🧩 <?php esc_html_e('Komponente', 'custom-crm'); ?>
+                        </span>
+                        <span class="crm-comp-code-pill" title="<?php esc_attr_e('Platzhalter zur Einbindung', 'custom-crm'); ?>" style="background:#f8fafc; color:#334155; border:1px solid #cbd5e1; font-family:monospace; font-size:11px; font-weight:600; padding:1px 7px; border-radius:4px; margin-left:4px;">
+                            <?php echo esc_html($comp_code); ?>
+                        </span>
+                    <?php endif; ?>
+                <?php else : ?>
+                    <span class="crm-usage-badge" style="background-color: <?php echo esc_attr($usage['color']); ?>;">
+                        <?php echo esc_html($usage['badge']); ?>
+                    </span>
+                <?php endif; ?>
             </h3>
             <div class="crm-action-group">
                 <span class="save-status"></span>
@@ -2134,6 +3578,26 @@ function crm_render_editor_field($index, $title, $content, $category = 'email')
                 </button>
                 <?php if ($category === 'pdf' && $doc !== 'general') : ?>
                     <button type="button" class="button crm-preview-this-doc" data-doc="<?php echo esc_attr($doc); ?>" title="<?php esc_attr_e('Dieses PDF in der Live-Vorschau anzeigen', 'custom-crm'); ?>" style="border-color: #cbd5e1; color: #7c3aed;">
+                        <span class="dashicons dashicons-visibility" style="vertical-align: text-top; font-size: 15px;"></span>
+                        <?php esc_html_e('Vorschau', 'custom-crm'); ?>
+                    </button>
+                <?php endif; ?>
+                <?php if ($category === 'email') : 
+                    $mail_doc = 'angebot';
+                    $t_low = strtolower(trim($title));
+                    if (strpos($t_low, 'kurszeit') !== false || strpos($t_low, 'kursantritt') !== false) {
+                        $mail_doc = 'kb';
+                    } elseif (strpos($t_low, 'anmelde') !== false || strpos($t_low, 'anmeldung') !== false || strpos($t_low, 'buchung') !== false) {
+                        $mail_doc = 'anmeldung';
+                    } elseif (strpos($t_low, 'diplom') !== false) {
+                        $mail_doc = 'diplom';
+                    } elseif (strpos($t_low, 'teilnahme') !== false) {
+                        $mail_doc = 'tb';
+                    } elseif (strpos($t_low, 'honorarnote') !== false || strpos($t_low, 'rechnung') !== false) {
+                        $mail_doc = 'invoice';
+                    }
+                ?>
+                    <button type="button" class="button crm-preview-this-email" data-doc="<?php echo esc_attr($mail_doc); ?>" title="<?php esc_attr_e('Diese E-Mail in der Live-Vorschau anzeigen', 'custom-crm'); ?>" style="border-color: #cbd5e1; color: #0284c7;">
                         <span class="dashicons dashicons-visibility" style="vertical-align: text-top; font-size: 15px;"></span>
                         <?php esc_html_e('Vorschau', 'custom-crm'); ?>
                     </button>
@@ -2149,7 +3613,7 @@ function crm_render_editor_field($index, $title, $content, $category = 'email')
             <div style="display: flex; gap: 16px; margin-bottom: 12px; align-items: flex-start; flex-wrap: wrap;">
                 <div style="flex: 2; min-width: 250px;">
                     <label style="font-weight: 600; font-size: 12.5px; color: #334155; display: block; margin-bottom: 4px;">
-                        <?php esc_html_e('Titel des Bausteins (z.B. E-Mail Angebot oder Bankverbindung):', 'custom-crm'); ?>
+                        <?php esc_html_e('Titel des Bausteins (z.B. E-Mail Angebot oder E-Mail Signatur):', 'custom-crm'); ?>
                     </label>
                     <input type="text"
                            name="crm_fields[<?php echo esc_attr($index); ?>][title]"
@@ -2161,12 +3625,15 @@ function crm_render_editor_field($index, $title, $content, $category = 'email')
 
                 <div style="flex: 1; min-width: 180px;">
                     <label style="font-weight: 600; font-size: 12.5px; color: #334155; display: block; margin-bottom: 4px;">
-                        <?php esc_html_e('Kategorie / Zuordnung:', 'custom-crm'); ?>
+                        <?php esc_html_e('Kategorie / Typ:', 'custom-crm'); ?>
                     </label>
-                    <select name="crm_fields[<?php echo esc_attr($index); ?>][category]" style="height: 34px; width: 100%; border-radius: 4px;">
-                        <option value="email" <?php selected($category, 'email'); ?>><?php esc_html_e('✉️ E-Mail Vorlage', 'custom-crm'); ?></option>
-                        <option value="pdf" <?php selected($category, 'pdf'); ?>><?php esc_html_e('📄 PDF Baustein', 'custom-crm'); ?></option>
+                    <select name="crm_fields[<?php echo esc_attr($index); ?>][category_choice]" class="crm-field-category-choice-select" style="height: 34px; width: 100%; border-radius: 4px;">
+                        <option value="email:full_email" <?php selected($category === 'email' && $email_type === 'full_email'); ?>><?php esc_html_e('📧 Gesamte E-Mail (Hauptvorlage)', 'custom-crm'); ?></option>
+                        <option value="email:component" <?php selected($category === 'email' && $email_type === 'component'); ?>><?php esc_html_e('🧩 E-Mail Komponente (Baustein)', 'custom-crm'); ?></option>
+                        <option value="pdf:general" <?php selected($category === 'pdf'); ?>><?php esc_html_e('📄 PDF Baustein', 'custom-crm'); ?></option>
                     </select>
+                    <input type="hidden" name="crm_fields[<?php echo esc_attr($index); ?>][category]" class="crm-field-category-input" value="<?php echo esc_attr($category); ?>" />
+                    <input type="hidden" name="crm_fields[<?php echo esc_attr($index); ?>][email_type]" class="crm-field-email-type-input" value="<?php echo esc_attr($email_type ?: 'full_email'); ?>" />
                 </div>
             </div>
 
@@ -2175,6 +3642,87 @@ function crm_render_editor_field($index, $title, $content, $category = 'email')
                     <span class="dashicons dashicons-info" style="font-size: 14px; width: 14px; height: 14px; vertical-align: middle;"></span>
                     <?php echo esc_html($usage['desc']); ?>
                 </p>
+            <?php endif; ?>
+
+            <?php if ($category === 'email' && $email_type === 'component') : 
+                $comp_code = crm_get_component_placeholder_for_title($title);
+            ?>
+                <!-- Component Info & Copy Box -->
+                <div class="crm-component-helper-box" style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:10px 14px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <span class="dashicons dashicons-screenoptions" style="color:#059669; font-size:18px; width:18px; height:18px;"></span>
+                        <strong style="font-size:12.5px; color:#166534;"><?php esc_html_e('Platzhalter zur Einbindung in gesamte E-Mails:', 'custom-crm'); ?></strong>
+                        <button type="button" class="crm-copy-chip-btn" data-code="<?php echo esc_attr($comp_code); ?>" title="<?php esc_attr_e('In Zwischenablage kopieren', 'custom-crm'); ?>" style="background:#ffffff; border:1px solid #86efac; color:#15803d; font-family:monospace; font-weight:700; font-size:12px; padding:3px 10px; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; gap:5px; transition:all 0.15s ease;">
+                            <span class="crm-copy-code-text"><?php echo esc_html($comp_code); ?></span>
+                            <span class="dashicons dashicons-clipboard" style="font-size:13px; width:13px; height:13px; vertical-align:middle;"></span>
+                        </button>
+                    </div>
+                    <span style="color:#15803d; font-size:11.5px; font-style:italic;">
+                        <?php esc_html_e('Wird in allen E-Mail-Vorlagen automatisch an Stelle des Codes gerendert.', 'custom-crm'); ?>
+                    </span>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($category === 'email' && $email_type === 'full_email') : 
+                $component_chips = [
+                    '{signatur_email}' => __('E-Mail Signatur', 'custom-crm'),
+                    '{email_footer}'   => __('E-Mail Footer & AGB', 'custom-crm'),
+                    '{buchung_email}'  => __('Buchungshinweis / Frist', 'custom-crm'),
+                    '{agb_claim}'      => __('AGB-Klausel', 'custom-crm'),
+                    '{bankverbindung}' => __('Bankverbindung', 'custom-crm'),
+                    '{angebot_hinweis}'=> __('Angebots-Hinweis', 'custom-crm'),
+                    '{angebot_ps}'     => __('P.S. ProvenExpert', 'custom-crm'),
+                ];
+                $system_chips = [
+                    '{kurstitel}'      => __('Kurstitel', 'custom-crm'),
+                    '{startdatum}'     => __('Startdatum', 'custom-crm'),
+                    '{enddatum}'       => __('Enddatum', 'custom-crm'),
+                    '{uhrzeit}'        => __('Kurszeiten', 'custom-crm'),
+                    '{le}'             => __('Lehreinheiten (LE)', 'custom-crm'),
+                    '{location_wien}'  => __('Schulungsort Wien', 'custom-crm'),
+                    '{preis_netto}'    => __('Preis Netto', 'custom-crm'),
+                    '{preis_brutto}'   => __('Preis Brutto', 'custom-crm'),
+                    '{expire}'         => __('Gültigkeit / Frist', 'custom-crm'),
+                    '{salutation}'     => __('Anrede (formell)', 'custom-crm'),
+                    '{titel}'          => __('Akad. Titel', 'custom-crm'),
+                    '{vorname}'        => __('Vorname', 'custom-crm'),
+                    '{nachname}'       => __('Nachname', 'custom-crm'),
+                ];
+            ?>
+                <!-- Full Email Chips Container -->
+                <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 6px; padding: 12px 14px; margin-bottom: 12px;">
+                    <!-- Components Chips Row -->
+                    <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed #bae6fd;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 5px; flex-wrap:wrap; gap:4px;">
+                            <strong style="font-size: 11.5px; color: #047857; text-transform:uppercase; letter-spacing:0.4px; display:flex; align-items:center; gap:5px;">
+                                <span class="dashicons dashicons-screenoptions" style="font-size:15px; width:15px; height:15px; color:#059669;"></span>
+                                <?php esc_html_e('🧩 Wiederverwendbare Komponenten einbinden:', 'custom-crm'); ?>
+                            </strong>
+                            <small style="color: #64748b; font-size: 11px;"><?php esc_html_e('Klick fügt Komponente an Cursor-Position ein', 'custom-crm'); ?></small>
+                        </div>
+                        <div style="display:flex; flex-wrap:wrap; gap:5px;">
+                            <?php foreach ($component_chips as $chip_code => $chip_desc) : ?>
+                                <button type="button" class="crm-insert-chip-to-editor" data-code="<?php echo esc_attr($chip_code); ?>" title="<?php echo esc_attr($chip_desc); ?>" style="background:#ecfdf5; border:1px solid #6ee7b7; color:#065f46; border-radius:12px; font-size:11px; font-family:monospace; padding:2px 8px; cursor:pointer; font-weight:600; transition:all 0.12s ease;">
+                                    <?php echo esc_html($chip_code); ?> <span style="font-family:Arial,sans-serif; font-weight:normal; font-size:10px; color:#047857;">(<?php echo esc_html($chip_desc); ?>)</span>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <!-- System Variables Row -->
+                    <div>
+                        <strong style="font-size: 11px; color: #0369a1; text-transform:uppercase; letter-spacing:0.4px; display:flex; align-items:center; gap:5px; margin-bottom: 5px;">
+                            <span class="dashicons dashicons-database" style="font-size:14px; width:14px; height:14px; color:#0284c7;"></span>
+                            <?php esc_html_e('🔤 Kurs- & Kundendaten-Platzhalter:', 'custom-crm'); ?>
+                        </strong>
+                        <div style="display:flex; flex-wrap:wrap; gap:5px;">
+                            <?php foreach ($system_chips as $chip_code => $chip_desc) : ?>
+                                <button type="button" class="crm-insert-chip-to-editor" data-code="<?php echo esc_attr($chip_code); ?>" title="<?php echo esc_attr($chip_desc); ?>" style="background:#ffffff; border:1px solid #7dd3fc; color:#0369a1; border-radius:12px; font-size:11px; font-family:monospace; padding:2px 8px; cursor:pointer; font-weight:600; transition:all 0.12s ease;">
+                                    <?php echo esc_html($chip_code); ?>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
             <?php endif; ?>
 
             <div>
@@ -2209,14 +3757,20 @@ function crm_add_field_editor_ajax_handler()
     if (!current_user_can('manage_options')) {
         wp_die('Unauthorized');
     }
-    $index    = intval($_POST['index'] ?? 0);
-    $category = sanitize_text_field($_POST['category'] ?? 'email');
+    $index      = intval($_POST['index'] ?? 0);
+    $category   = sanitize_text_field($_POST['category'] ?? 'email');
+    $email_type = sanitize_key($_POST['email_type'] ?? 'full_email');
     if (!in_array($category, ['email', 'pdf'], true)) {
         $category = 'email';
     }
 
-    $default_title = ($category === 'email') ? 'Neue E-Mail Vorlage' : 'Neuer PDF Baustein';
-    crm_render_editor_field($index, $default_title, '', $category);
+    if ($category === 'email') {
+        $default_title = ($email_type === 'component') ? 'Neuer E-Mail Baustein' : 'Neue E-Mail Vorlage';
+    } else {
+        $default_title = 'Neuer PDF Baustein';
+    }
+
+    crm_render_editor_field($index, $default_title, '', $category, $email_type);
     wp_die();
 }
 
@@ -2245,12 +3799,17 @@ function crm_save_field_individual_ajax_handler()
         wp_send_json_error(['message' => 'Invalid nonce']);
     }
 
-    $index    = intval($_POST['index'] ?? 0);
-    $title    = sanitize_text_field($_POST['title'] ?? '');
-    $content  = wp_kses_post($_POST['content'] ?? '');
-    $category = sanitize_text_field($_POST['category'] ?? 'email');
+    $index      = intval($_POST['index'] ?? 0);
+    $title      = sanitize_text_field($_POST['title'] ?? '');
+    $content    = wp_kses_post($_POST['content'] ?? '');
+    $category   = sanitize_text_field($_POST['category'] ?? 'email');
+    $email_type = sanitize_key($_POST['email_type'] ?? '');
+
     if (!in_array($category, ['email', 'pdf'], true)) {
         $category = crm_get_field_category(['title' => $title]);
+    }
+    if ($category === 'email' && !in_array($email_type, ['full_email', 'component'], true)) {
+        $email_type = crm_get_email_field_type($title);
     }
 
     $fields = get_option('crm_custom_fields', []);
@@ -2259,17 +3818,20 @@ function crm_save_field_individual_ajax_handler()
     }
 
     $fields[$index] = [
-        'title'    => $title,
-        'content'  => $content,
-        'category' => $category,
+        'title'      => $title,
+        'content'    => $content,
+        'category'   => $category,
+        'email_type' => $email_type,
     ];
 
     update_option('crm_custom_fields', $fields);
 
     $usage = crm_get_field_usage_info($title);
     wp_send_json_success([
-        'message' => __('Field saved successfully.', 'custom-crm'),
-        'usage'   => $usage,
+        'message'    => __('Field saved successfully.', 'custom-crm'),
+        'usage'      => $usage,
+        'email_type' => $email_type,
+        'type_badge' => ($email_type === 'full_email' ? '📧 Gesamte E-Mail' : '🧩 Komponente'),
     ]);
 }
 
@@ -2369,4 +3931,159 @@ function crm_get_pdf_preview_url_ajax_handler()
     } else {
         wp_send_json_error(['message' => __('Das PDF konnte nicht gerendert werden.', 'custom-crm')]);
     }
-}
+}
+
+/**
+ * AJAX handler to render the standalone HTML preview frame for E-Mails.
+ */
+add_action('wp_ajax_crm_render_email_preview_frame', 'crm_render_email_preview_frame_ajax_handler');
+function crm_render_email_preview_frame_ajax_handler()
+{
+    if (!current_user_can('manage_options')) {
+        status_header(403);
+        wp_die('Unauthorized');
+    }
+
+    $doc_type = sanitize_key($_GET['doc_type'] ?? 'angebot');
+    $sample   = crm_get_preview_sample_data();
+
+    $entry_id  = !empty($sample['entry_id']) ? $sample['entry_id'] : null;
+    $course_id = !empty($sample['course_id']) ? $sample['course_id'] : null;
+
+    require_once __DIR__ . '/helpers/crm-email-sections.php';
+
+    $html = crm_get_email_preview_html($doc_type, $entry_id, $course_id);
+
+    header('Content-Type: text/html; charset=UTF-8');
+    header('X-Robots-Tag: noindex, nofollow');
+    echo $html;
+    exit;
+}
+
+/**
+ * AJAX handler to get E-Mail preview JSON data (for metadata, copy HTML, etc.).
+ */
+add_action('wp_ajax_crm_get_email_preview_data', 'crm_get_email_preview_data_ajax_handler');
+function crm_get_email_preview_data_ajax_handler()
+{
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Unauthorized']);
+    }
+
+    $doc_type = sanitize_key($_POST['doc_type'] ?? 'angebot');
+    $sample   = crm_get_preview_sample_data();
+
+    $entry_id  = !empty($sample['entry_id']) ? $sample['entry_id'] : null;
+    $course_id = !empty($sample['course_id']) ? $sample['course_id'] : null;
+
+    require_once __DIR__ . '/helpers/crm-email-sections.php';
+
+    $html = crm_get_email_preview_html($doc_type, $entry_id, $course_id);
+
+    wp_send_json_success([
+        'doc_type'    => $doc_type,
+        'html'        => $html,
+        'sample_info' => sprintf(
+            __('Musterdaten: Kurs #%d (%s) & Anfrage #%d (%s)', 'custom-crm'),
+            $course_id ?: 0,
+            $sample['course_title'] ?? 'Musterkurs',
+            $entry_id ?: 0,
+            $sample['client_name'] ?? 'Musterteilnehmer'
+        ),
+    ]);
+}
+
+/**
+ * AJAX handler to send a preview E-Mail to a specified test address.
+ */
+add_action('wp_ajax_crm_send_email_preview_test', 'crm_send_email_preview_test_ajax_handler');
+function crm_send_email_preview_test_ajax_handler()
+{
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Unauthorized']);
+    }
+
+    $doc_type  = sanitize_key($_POST['doc_type'] ?? 'angebot');
+    $recipient = sanitize_email($_POST['recipient'] ?? '');
+
+    if (!is_email($recipient)) {
+        wp_send_json_error(['message' => __('Ungültige E-Mail-Adresse.', 'custom-crm')]);
+    }
+
+    $sample    = crm_get_preview_sample_data();
+    $entry_id  = !empty($sample['entry_id']) ? $sample['entry_id'] : null;
+    $course_id = !empty($sample['course_id']) ? $sample['course_id'] : null;
+
+    require_once __DIR__ . '/helpers/crm-email-sections.php';
+
+    $html = crm_get_email_preview_html($doc_type, $entry_id, $course_id);
+
+    $titles = [
+        'angebot'    => 'Kursangebot & Beratung',
+        'kb'         => 'Kurszeitenbestätigung',
+        'angebot_kb' => 'Kursangebot & Kurszeiten (Kombi)',
+        'anmeldung'  => 'Anmeldebestätigung',
+        'tb'         => 'Teilnahmebestätigung',
+        'diplom'     => 'Diplom / Zertifikat',
+        'invoice'    => 'Honorarnote / Rechnung',
+    ];
+
+    $doc_label = $titles[$doc_type] ?? strtoupper($doc_type);
+    $course_label = !empty($sample['course_title']) ? $sample['course_title'] : 'Musterkurs';
+    $subject   = sprintf('[TEST-VORSCHAU] X SIEBEN %s — %s', $doc_label, $course_label);
+
+    $headers = [
+        'Content-Type: text/html; charset=UTF-8',
+        'From: X SIEBEN Wirtschaftstraining <office@x-sieben.at>',
+        'Reply-To: X SIEBEN Backoffice <office@x-sieben.at>',
+    ];
+
+    $sent = wp_mail($recipient, $subject, $html, $headers);
+
+    if ($sent) {
+        wp_send_json_success([
+            'message' => sprintf(__('Test-Mail für "%s" wurde erfolgreich an %s gesendet.', 'custom-crm'), $doc_label, $recipient),
+        ]);
+    } else {
+        wp_send_json_error([
+            'message' => __('wp_mail konnte die E-Mail nicht versenden. Bitte Mailserver-Konfiguration prüfen.', 'custom-crm'),
+        ]);
+    }
+}
+
+/**
+ * AJAX handler to save an email template subject individually.
+ */
+add_action('wp_ajax_crm_save_email_subject', 'crm_save_email_subject_ajax_handler');
+function crm_save_email_subject_ajax_handler()
+{
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Unauthorized']);
+    }
+
+    $nonce = $_POST['nonce'] ?? '';
+    if (!wp_verify_nonce($nonce, 'crm_ajax_nonce') && !wp_verify_nonce($nonce, 'save_crm_settings') && !wp_verify_nonce($nonce, 'crm_email_preview_nonce')) {
+        wp_send_json_error(['message' => 'Sicherheitsüberprüfung fehlgeschlagen.']);
+    }
+
+    $doc_type = sanitize_key($_POST['doc_type'] ?? '');
+    $subject  = sanitize_text_field(wp_unslash($_POST['subject'] ?? ''));
+
+    if (empty($doc_type)) {
+        wp_send_json_error(['message' => 'Ungültiger Vorlagentyp.']);
+    }
+
+    require_once __DIR__ . '/helpers/crm-email-sections.php';
+    if (function_exists('crm_save_email_subject_template')) {
+        crm_save_email_subject_template($doc_type, $subject);
+    } else {
+        update_option('crm_email_subject_' . $doc_type, $subject);
+    }
+
+    wp_send_json_success([
+        'message'  => __('Betreffzeile erfolgreich gespeichert.', 'custom-crm'),
+        'doc_type' => $doc_type,
+        'subject'  => $subject,
+    ]);
+}
+
