@@ -1487,17 +1487,23 @@ function crm_render_email_attachments_selector(string $pdf_url, int $course_id, 
         $nachname = $model->nachname;
     }
 
-    // Hilfsfunktion zum Suchen von Dateien im angebote/-Ordner
-    $find_server_pdf = function($prefix, $secondary = null) use ($server_files, $entry_id) {
+    // Hilfsfunktion zum Suchen von Dateien im angebote/-Ordner (wählt immer die neueste Datei anhand filemtime)
+    $find_server_pdf = function($prefix, $secondary = null) use ($server_files, $angebote_dir) {
+        $best_file  = false;
+        $best_mtime = -1;
         foreach ($server_files as $f) {
             if (substr($f, -4) !== '.pdf') continue;
             if (strpos($f, $prefix) === 0) {
                 if ($secondary === null || strpos($f, $secondary) !== false) {
-                    return $f;
+                    $mtime = file_exists($angebote_dir . $f) ? filemtime($angebote_dir . $f) : 0;
+                    if ($mtime > $best_mtime) {
+                        $best_mtime = $mtime;
+                        $best_file  = $f;
+                    }
                 }
             }
         }
-        return false;
+        return $best_file;
     };
 
     $found_angebot = $find_server_pdf("A_{$entry_id}-");

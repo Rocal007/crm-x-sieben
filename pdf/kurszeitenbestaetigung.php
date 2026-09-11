@@ -380,6 +380,15 @@ function xsieben_kurszeitenbestaetigung_pdf($entry_id, $course_id, $output_to_br
     if (!file_exists($save_dir)) {
         wp_mkdir_p($save_dir);
     }
+    // Clean up older KB files for this student
+    $existing_old_kb = glob($save_dir . 'Kurszeitenbestaetigung_' . $safe_vorname . '_' . $safe_nachname . '_*.pdf');
+    if (!empty($existing_old_kb)) {
+        foreach ($existing_old_kb as $old_f) {
+            if (basename($old_f) !== $pdfName && file_exists($old_f)) {
+                @unlink($old_f);
+            }
+        }
+    }
     $save_path = $save_dir . $pdfName;
     $save_path = str_replace('/', DIRECTORY_SEPARATOR, $save_path);
     $pdf->Output($save_path, 'F');

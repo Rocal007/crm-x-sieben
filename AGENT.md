@@ -18,7 +18,7 @@ Gemäß den NEXUS-Protokollen ($T = C \circ P_J \circ D_L \circ F$) operieren f�
 
 | Agent | Protokoll | Fokus | Spezifikationsdatei |
 | :--- | :--- | :--- | :--- |
-| **`crm_nexus_architect`** | ARCHITECTUM | Autarkie, MVC, Schema, Versionierung (`CRM_VERSION = '2.18.2'`) | [ARCHITECT.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/ARCHITECT.md) |
+| **`crm_nexus_architect`** | ARCHITECTUM | Autarkie, MVC, Schema, Versionierung (`CRM_VERSION = '2.18.3'`) | [ARCHITECT.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/ARCHITECT.md) |
 | **`crm_nexus_ux`** | VISIUM / VFB | Birkenbihl-Modell ($W_{\text{aktiv}}$), Live-Previews Desktop (600px) / Mobile (375px) | [UX-NEURODIDAKTIK.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/UX-NEURODIDAKTIK.md) |
 | **`crm_nexus_legislative`** | LEGISLATIVE | ISO 17024, IPMA/pma, AMS, GewO 1994, AGB-Schutz, FAGG | [LEGISLATIVE.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/LEGISLATIVE.md) |
 | **`crm_nexus_judikative`** | JUDIKATIVE | Circuit-Breaker ($V_{\text{gate}}$), Fluff-Filter ($\mathcal{V}_{\text{forbidden}}$), 20% USt AT | [JUDIKATIVE.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/JUDIKATIVE.md) |
@@ -33,7 +33,7 @@ Für die E-Mail-Editor-Architektur existiert zusätzlich das Spezialhandbuch [AG
 
 ## 3. Autarkie-Architektur (Standalone-Prinzip)
 Das Modul `inc/core/crm/` ist 100 % unabhängig vom Rest des Themes:
-- **`crm-admin.php`**: Hauptseite, Menüeintrag, Asset-Fallback-Registration, Versionsanzeige (`CRM_VERSION = '2.18.2'`).
+- **`crm-admin.php`**: Hauptseite, Menüeintrag, Asset-Fallback-Registration, Versionsanzeige (`CRM_VERSION = '2.18.3'`).
 - **`helpers/crm-cache.php`**: Automatisches JS-Cache-Clean mit Flag-Steuerung (`crm_auto_js_cache_clean`) ausschließlich bei partiellem Cache-Update ($C(X) = X$).
 - **`crm-settings.php`**: E-Mail-Editor, PDF-Editor mit modularer Sektionsverwaltung sowie integrierter asynchroner PDF-Live-Vorschau.
 - **`helpers/crm-email-sections.php`**: Modulare Drag-and-Drop E-Mail-Abschnitte und asynchrone E-Mail-Live-Vorschau (Desktop/Mobile).

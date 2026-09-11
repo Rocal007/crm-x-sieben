@@ -78,7 +78,7 @@ function crm_get_js_cache_version(): string
  */
 function crm_get_asset_version(?string $base_version = null): string
 {
-    $base = $base_version ?? (defined('CRM_VERSION') ? CRM_VERSION : '2.18.2');
+    $base = $base_version ?? (defined('CRM_VERSION') ? CRM_VERSION : '2.18.3');
     $js_file = dirname(__DIR__) . '/assets/crm-admin.js';
     $mtime = file_exists($js_file) ? (string) filemtime($js_file) : (string) time();
 

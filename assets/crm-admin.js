@@ -1,6 +1,6 @@
 // crm-admin.js
 // =============================================================================
-// NEXUS CRM JS CACHE OPERATOR — C(X) Idempotent State Operator | V2.18.2
+// NEXUS CRM JS CACHE OPERATOR — C(X) Idempotent State Operator | V2.18.3
 // High-performance client-side cache & automatic cleaner for partial updates
 // =============================================================================
 (function (window) {

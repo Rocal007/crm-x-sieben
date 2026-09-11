@@ -649,6 +649,16 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
     if (!file_exists($save_dir)) {
         wp_mkdir_p($save_dir);
     }
+    // Clean up any older PDF files for this entry to prevent stale file clutter or encoding collisions
+    $existing_old_files = glob($save_dir . 'A_' . $nummer . '_*.pdf');
+    if (!empty($existing_old_files)) {
+        foreach ($existing_old_files as $old_file) {
+            if (basename($old_file) !== $pdf_name && file_exists($old_file)) {
+                @unlink($old_file);
+            }
+        }
+    }
+
     $save_path = $save_dir . $pdf_name;
     $save_path = str_replace('/', DIRECTORY_SEPARATOR, $save_path);
     $pdf->Output($save_path, 'F');
