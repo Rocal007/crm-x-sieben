@@ -18,7 +18,7 @@ Gemäß den NEXUS-Protokollen ($T = C \circ P_J \circ D_L \circ F$) operieren f�
 
 | Agent | Protokoll | Fokus | Spezifikationsdatei |
 | :--- | :--- | :--- | :--- |
-| **`crm_nexus_architect`** | ARCHITECTUM | Autarkie, MVC, Schema, Versionierung (`CRM_VERSION = '2.17.2'`) | [ARCHITECT.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/ARCHITECT.md) |
+| **`crm_nexus_architect`** | ARCHITECTUM | Autarkie, MVC, Schema, Versionierung (`CRM_VERSION = '2.18.0'`) | [ARCHITECT.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/ARCHITECT.md) |
 | **`crm_nexus_ux`** | VISIUM / VFB | Birkenbihl-Modell ($W_{\text{aktiv}}$), Live-Previews Desktop (600px) / Mobile (375px) | [UX-NEURODIDAKTIK.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/UX-NEURODIDAKTIK.md) |
 | **`crm_nexus_legislative`** | LEGISLATIVE | ISO 17024, IPMA/pma, AMS, GewO 1994, AGB-Schutz, FAGG | [LEGISLATIVE.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/LEGISLATIVE.md) |
 | **`crm_nexus_judikative`** | JUDIKATIVE | Circuit-Breaker ($V_{\text{gate}}$), Fluff-Filter ($\mathcal{V}_{\text{forbidden}}$), 20% USt AT | [JUDIKATIVE.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/JUDIKATIVE.md) |
@@ -33,14 +33,15 @@ Für die E-Mail-Editor-Architektur existiert zusätzlich das Spezialhandbuch [AG
 
 ## 3. Autarkie-Architektur (Standalone-Prinzip)
 Das Modul `inc/core/crm/` ist 100 % unabhängig vom Rest des Themes:
-- **`crm-admin.php`**: Hauptseite, Menüeintrag, Asset-Fallback-Registration, Versionsanzeige (`CRM_VERSION = '2.17.2'`).
+- **`crm-admin.php`**: Hauptseite, Menüeintrag, Asset-Fallback-Registration, Versionsanzeige (`CRM_VERSION = '2.18.0'`).
+- **`helpers/crm-cache.php`**: Automatisches JS-Cache-Clean mit Flag-Steuerung (`crm_auto_js_cache_clean`) ausschließlich bei partiellem Cache-Update ($C(X) = X$).
 - **`crm-settings.php`**: E-Mail-Editor, PDF-Editor mit modularer Sektionsverwaltung sowie integrierter asynchroner PDF-Live-Vorschau.
 - **`helpers/crm-email-sections.php`**: Modulare Drag-and-Drop E-Mail-Abschnitte und asynchrone E-Mail-Live-Vorschau (Desktop/Mobile).
 - **`crm-model.php`**: Zentrales Datenmodell `CRM_Model`. Liest WPForms-Felder und Kursdaten aus. E-Mail-Vorlagen werden via `wpautop()` + `do_shortcode()` + `crm_prepare_email_html_for_sending()` geladen. **NIEMALS** `apply_filters('the_content', ...)` auf E-Mail-Inhalte anwenden!
 - **`helpers/normalize.php`**: E-Mail-HTML-Normalisierer `crm_prepare_email_html_for_sending()`. Garantiert absolute HTTPS-URLs (`https://x-sieben.at/...`), bereinigt Cookie-Banner-Attribute und repariert Smileys.
 - **`helpers/crm-status.php`**: Datenbanktabellen `wp_crm_entry_status` und `wp_crm_entry_status_history`, Status-Badges, Zeitstempel, Modal-Historie.
 - **`controler/output-controler.php`**: AJAX-Handler `x_sieben_send_mail` mit Test-Modus (`only_test` vs `both`) und PDF-Anhängen.
-- **`assets/crm-admin.js`**: Interaktive Steuerung (Inline-Erfolgsmeldung, Status-Dropdown-Wechsel, Historien-Modal).
+- **`assets/crm-admin.js`**: Interaktive Steuerung (Inline-Erfolgsmeldung, Status-Dropdown-Wechsel, Historien-Modal, Client-Cache-Operator `window.crmJsCache`).
 
 ---
 

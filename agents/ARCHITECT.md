@@ -47,19 +47,23 @@ inc/core/crm/
 ├── helpers/
 │   ├── crm-email-sections.php <-- Modulare E-Mail Sektionen (7 Typen)
 │   ├── crm-pdf-sections.php   <-- Modulare PDF Sektionen (5 Dokumente)
+│   ├── crm-cache.php          <-- NEXUS Cache Operator C(X) & Auto JS Cache Clean
 │   ├── crm-status.php         <-- DB-Status-Engine & Audit-Log
 │   └── normalize.php          <-- Zero-Leakage & Kanonisierungs-Pipeline
 ├── mailer/                    <-- SMTP- & Mail-Vorlagen
 ├── pdf/                       <-- TCPDF/mPDF Dokumentenvorlagen
-└── assets/ & css/             <-- Autarke UI-Ressourcen
+└── assets/ & css/             <-- Autarke UI-Ressourcen (inkl. crmJsCache)
 ```
 
 ---
 
-## 5. Versionskontrolle & Cache-Busting
-- Die Konstante `CRM_VERSION` in `crm-admin.php` ist die Single Source of Truth (SSOT).
-- Bei jeder funktionalen Änderung MUSS die Version inkrementiert werden (z. B. `2.16.0` -> `2.16.1` oder `2.17.0`).
-- Alle Script- und Style-Enqueues (`wp_enqueue_script`, `wp_enqueue_style`) binden `CRM_VERSION` als Cache-Buster ein.
+## 5. Versionskontrolle & Cache-Busting (NEXUS Cache Operator C)
+- Die Konstante `CRM_VERSION` in `crm-admin.php` ist die Single Source of Truth (SSOT), aktuell `2.18.0`.
+- **Automatisches JS-Cache-Clean mit Flag**:
+  - Gesteuert über das Flag `crm_auto_js_cache_clean` (Option, Konstante `CRM_AUTO_JS_CACHE_CLEAN` oder Request).
+  - Wird **ausschließlich bei partiellem Cache-Update** (`crm_on_partial_cache_update()`, z. B. Sektions-Reihenfolge ändern, Betreff speichern, Status aktualisieren) ausgeführt.
+  - Generiert dynamische Asset-Versionen via `crm_get_asset_version()` (`2.18.0.<timestamp>`), sodass Browser niemals veraltete JS-Dateien ausführen.
+  - Clientseitig leert `window.crmJsCache.cleanPartial()` gezielt In-Memory-Caches, `sessionStorage` und erneuert Live-Preview-Embeds/Iframes (`?cv=...`).
 
 ---
 

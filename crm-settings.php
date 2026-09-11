@@ -217,6 +217,9 @@ function crm_get_general_defaults(): array
 
         // Mailer
         'test_email'             => get_option('crm_test_email', $admin_email),
+
+        // Performance & Cache-Busting (NEXUS Cache Operator C)
+        'auto_js_cache_clean'    => get_option('crm_auto_js_cache_clean', '1'),
     ];
 }
 
@@ -749,7 +752,16 @@ function render_crm_settings_page()
                 update_option('crm_test_email', $sanitized['test_email']);
             }
 
+            // Sync auto_js_cache_clean flag
+            $auto_cache = isset($_POST['crm_general']['auto_js_cache_clean']) ? 1 : 0;
+            update_option('crm_auto_js_cache_clean', $auto_cache);
+            $sanitized['auto_js_cache_clean'] = $auto_cache;
+
             update_option('crm_general_settings', $sanitized);
+
+            if ($auto_cache && function_exists('crm_on_partial_cache_update')) {
+                crm_on_partial_cache_update('general_settings');
+            }
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Allgemeine CRM-Einstellungen, Demographie & CI-Stammdaten erfolgreich gespeichert.', 'custom-crm') . '</p></div>';
         }
 
@@ -1276,7 +1288,46 @@ function render_crm_settings_page()
                         </div>
                     </div>
 
-                    <!-- CARD 6: CRM-Platzhalter Übersicht für Demographie & CI -->
+                    <!-- CARD 6: Performance & Cache-Busting (NEXUS Cache Operator C) -->
+                    <div class="crm-settings-card" style="border-left: 4px solid #0284c7;">
+                        <div class="crm-settings-card-header">
+                            <h2>
+                                <span class="dashicons dashicons-update" style="color: #0284c7; font-size: 22px;"></span>
+                                <?php esc_html_e('Performance & Cache-Busting (NEXUS Cache-Operator C)', 'custom-crm'); ?>
+                            </h2>
+                            <span class="crm-section-tag" style="background:#e0f2fe; color:#0369a1;"><?php esc_html_e('Fixpunkt C(X)', 'custom-crm'); ?></span>
+                        </div>
+                        <p style="color: #475569; font-size: 13.5px; line-height: 1.5; margin-top: 0;">
+                            <?php esc_html_e('Steuert die automatische JS- und Asset-Cache-Invalidierung. Nach den NEXUS-Vorgaben wird der Cache im Browser und Server stabil gehalten ($C(X) = X$) und ausschließlich bei gezielten partiellen Änderungen (z. B. Verschieben von PDF-/E-Mail-Abschnitten, Ändern von Betreffzeilen oder Statusaktualisierungen) automatisch invalidiert.', 'custom-crm'); ?>
+                        </p>
+                        
+                        <div class="crm-form-row" style="align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; background: #f8fafc; padding: 14px 18px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 16px;">
+                            <div style="flex: 1; min-width: 280px;">
+                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; color: #1e293b; font-size: 14px;">
+                                    <input type="checkbox" name="crm_general[auto_js_cache_clean]" value="1" <?php checked(!empty($general_settings['auto_js_cache_clean'])); ?> style="width: 18px; height: 18px;" />
+                                    <span><?php esc_html_e('Automatisches JS-Cache-Clean bei partiellem Cache-Update aktivieren (Flag)', 'custom-crm'); ?></span>
+                                </label>
+                                <p style="margin: 4px 0 0 28px; font-size: 12.5px; color: #64748b; line-height: 1.4;">
+                                    <?php esc_html_e('Wenn aktiv, werden bei jedem partiellen Update (z.B. E-Mail-/PDF-Abschnitte speichern) die Browser-Asset-Version gebumpt und die clientseitigen JS-Caches automatisch bereinigt.', 'custom-crm'); ?>
+                                </p>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <button type="button" class="button button-secondary" id="crm-btn-manual-purge-cache" style="height: 34px; line-height: 32px; padding: 0 14px; border-color: #0284c7; color: #0284c7;">
+                                    <span class="dashicons dashicons-trash" style="font-size: 15px; vertical-align: text-top; margin-top: 1px;"></span>
+                                    <?php esc_html_e('JS-Cache jetzt leeren', 'custom-crm'); ?>
+                                </button>
+                                <span id="crm-cache-purge-status" style="font-size: 12.5px; font-weight: 600;"></span>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; align-items: center; gap: 14px; font-size: 12.5px; color: #64748b;">
+                            <span><strong><?php esc_html_e('Aktuelle Asset-Version:', 'custom-crm'); ?></strong> <code style="background:#e2e8f0; padding:2px 6px; border-radius:4px; font-weight:600; color:#0f172a;" id="crm-current-asset-version"><?php echo esc_html(function_exists('crm_get_asset_version') ? crm_get_asset_version() : CRM_VERSION); ?></code></span>
+                            <span>•</span>
+                            <span><strong><?php esc_html_e('Cache-Buster-Key:', 'custom-crm'); ?></strong> <code style="background:#e2e8f0; padding:2px 6px; border-radius:4px;" id="crm-current-cache-buster"><?php echo esc_html(function_exists('crm_get_js_cache_version') ? crm_get_js_cache_version() : time()); ?></code></span>
+                        </div>
+                    </div>
+
+                    <!-- CARD 7: CRM-Platzhalter Übersicht für Demographie & CI -->
                     <div class="crm-settings-card" style="background: #f8fafc; border: 1px solid #cbd5e1;">
                         <h3 style="margin-top: 0; color: #1e293b; font-size: 15px; display: flex; align-items: center; gap: 8px;">
                             <span class="dashicons dashicons-info" style="color: #007C90;"></span>
@@ -2702,6 +2753,9 @@ function render_crm_settings_page()
             }, function(res) {
                 btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align:text-top; font-size:14px;"></span> <?php echo esc_js(__('Reihenfolge anwenden', 'custom-crm')); ?>');
                 if (res.success) {
+                    if (window.crmJsCache && typeof window.crmJsCache.cleanPartial === 'function') {
+                        window.crmJsCache.cleanPartial('pdf_' + docType);
+                    }
                     statusEl.text('✓ <?php echo esc_js(__('Gespeichert!', 'custom-crm')); ?>').css({color: '#16a34a'}).fadeIn().delay(2000).fadeOut();
                     if (typeof loadPdfPreview === 'function') {
                         loadPdfPreview(docType, true);
@@ -2738,6 +2792,9 @@ function render_crm_settings_page()
             }, function(res) {
                 btn.prop('disabled', false);
                 if (res.success && res.data && res.data.html) {
+                    if (window.crmJsCache && typeof window.crmJsCache.cleanPartial === 'function') {
+                        window.crmJsCache.cleanPartial('pdf_' + docType);
+                    }
                     parentContainer.html(res.data.html);
                     initCrmSortables();
                     if (typeof loadPdfPreview === 'function') {
@@ -3034,6 +3091,9 @@ function render_crm_settings_page()
             }, function(res) {
                 btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align:text-top; font-size:14px;"></span> <?php echo esc_js(__('E-Mail-Reihenfolge anwenden', 'custom-crm')); ?>');
                 if (res.success) {
+                    if (window.crmJsCache && typeof window.crmJsCache.cleanPartial === 'function') {
+                        window.crmJsCache.cleanPartial('email_' + docType);
+                    }
                     statusEl.text('✓ <?php echo esc_js(__('Gespeichert!', 'custom-crm')); ?>').css({color: '#16a34a'}).fadeIn().delay(2000).fadeOut();
                     if (typeof loadEmailPreview === 'function') {
                         loadEmailPreview(docType, true);
@@ -3070,6 +3130,9 @@ function render_crm_settings_page()
             }, function(res) {
                 btn.prop('disabled', false);
                 if (res.success && res.data && res.data.html) {
+                    if (window.crmJsCache && typeof window.crmJsCache.cleanPartial === 'function') {
+                        window.crmJsCache.cleanPartial('email_' + docType);
+                    }
                     parentContainer.html(res.data.html);
                     initEmailSortables();
                     if (typeof loadEmailPreview === 'function') {
@@ -3149,6 +3212,45 @@ function render_crm_settings_page()
                 domEl.focus();
                 $(domEl).trigger('input').trigger('change');
             }
+        });
+
+        // Manual Purge JS Cache
+        $('#crm-btn-manual-purge-cache').on('click', function (e) {
+            e.preventDefault();
+            const btn = $(this);
+            const status = $('#crm-cache-purge-status');
+            const origHtml = btn.html();
+
+            btn.prop('disabled', true).html('<span class="dashicons dashicons-update spin"></span> <?php echo esc_js(__('Leeren...', 'custom-crm')); ?>');
+            status.text('<?php echo esc_js(__('Cache wird invalidiert...', 'custom-crm')); ?>').css({ color: '#0284c7' }).fadeIn();
+
+            const postNonce = window.crmPreviewNonce || (typeof crmData !== 'undefined' ? crmData.nonce : '<?php echo wp_create_nonce('crm_ajax_nonce'); ?>');
+
+            $.post(ajaxurl, {
+                action: 'crm_clear_js_cache',
+                nonce: postNonce
+            }, function (res) {
+                btn.prop('disabled', false).html(origHtml);
+                if (res.success) {
+                    if (window.crmJsCache && typeof window.crmJsCache.cleanAll === 'function') {
+                        window.crmJsCache.cleanAll();
+                    }
+                    const msg = (res.data && res.data.message) ? res.data.message : '<?php echo esc_js(__('JS-Cache erfolgreich geleert!', 'custom-crm')); ?>';
+                    status.text('✓ ' + msg).css({ color: '#16a34a' }).fadeIn().delay(3500).fadeOut();
+                    if (res.data && res.data.asset_ver) {
+                        $('#crm-current-asset-version').text(res.data.asset_ver);
+                    }
+                    if (res.data && res.data.new_version) {
+                        $('#crm-current-cache-buster').text(res.data.new_version);
+                    }
+                } else {
+                    const msg = (res.data && res.data.message) ? res.data.message : '<?php echo esc_js(__('Fehler beim Leeren.', 'custom-crm')); ?>';
+                    status.text('✗ ' + msg).css({ color: '#dc2626' }).fadeIn().delay(4000).fadeOut();
+                }
+            }).fail(function () {
+                btn.prop('disabled', false).html(origHtml);
+                status.text('✗ <?php echo esc_js(__('Serverfehler beim Leeren.', 'custom-crm')); ?>').css({ color: '#dc2626' }).fadeIn().delay(4000).fadeOut();
+            });
         });
 
         // Initial preview load if on PDF tab
@@ -4080,10 +4182,15 @@ function crm_save_email_subject_ajax_handler()
         update_option('crm_email_subject_' . $doc_type, $subject);
     }
 
+    $cache_res = function_exists('crm_on_partial_cache_update')
+        ? crm_on_partial_cache_update('email_subject_' . $doc_type)
+        : [];
+
     wp_send_json_success([
         'message'  => __('Betreffzeile erfolgreich gespeichert.', 'custom-crm'),
         'doc_type' => $doc_type,
         'subject'  => $subject,
+        'js_cache' => $cache_res,
     ]);
 }
 

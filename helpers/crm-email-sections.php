@@ -674,10 +674,16 @@ function crm_save_email_section_order(string $doc_type, array $ordered_sections,
     }
 
     if (!empty($entry_id)) {
-        return (bool)update_post_meta($entry_id, '_crm_email_sections_order_' . $doc_type, $sanitized);
+        $saved = (bool)update_post_meta($entry_id, '_crm_email_sections_order_' . $doc_type, $sanitized);
+    } else {
+        $saved = update_option('crm_email_sections_order_' . $doc_type, $sanitized);
     }
 
-    return update_option('crm_email_sections_order_' . $doc_type, $sanitized);
+    if ($saved && function_exists('crm_on_partial_cache_update')) {
+        crm_on_partial_cache_update('email_' . $doc_type, $entry_id);
+    }
+
+    return (bool) $saved;
 }
 
 /**
@@ -691,9 +697,16 @@ function crm_reset_email_section_order(string $doc_type, $entry_id = null): bool
 {
     $doc_type = strtolower(trim($doc_type));
     if (!empty($entry_id)) {
-        return delete_post_meta($entry_id, '_crm_email_sections_order_' . $doc_type);
+        $deleted = delete_post_meta($entry_id, '_crm_email_sections_order_' . $doc_type);
+    } else {
+        $deleted = delete_option('crm_email_sections_order_' . $doc_type);
     }
-    return delete_option('crm_email_sections_order_' . $doc_type);
+
+    if ($deleted && function_exists('crm_on_partial_cache_update')) {
+        crm_on_partial_cache_update('email_' . $doc_type, $entry_id);
+    }
+
+    return (bool) $deleted;
 }
 
 /**
@@ -1126,7 +1139,11 @@ function crm_get_email_subject_template(string $doc_type): string
  */
 function crm_save_email_subject_template(string $doc_type, string $subject): bool
 {
-    return update_option('crm_email_subject_' . $doc_type, sanitize_text_field($subject));
+    $saved = update_option('crm_email_subject_' . $doc_type, sanitize_text_field($subject));
+    if ($saved && function_exists('crm_on_partial_cache_update')) {
+        crm_on_partial_cache_update('email_subject_' . $doc_type);
+    }
+    return (bool) $saved;
 }
 
 /**

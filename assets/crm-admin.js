@@ -1,4 +1,127 @@
 // crm-admin.js
+// =============================================================================
+// NEXUS CRM JS CACHE OPERATOR — C(X) Idempotent State Operator | V2.18.0
+// High-performance client-side cache & automatic cleaner for partial updates
+// =============================================================================
+(function (window) {
+    const isFlagActive = function () {
+        if (typeof crmData !== 'undefined' && typeof crmData.autoJsCacheClean !== 'undefined') {
+            return Boolean(crmData.autoJsCacheClean);
+        }
+        return true;
+    };
+
+    window.crmJsCache = {
+        flag: isFlagActive(),
+        cache: new Map(),
+
+        isFlagActive: function () {
+            if (typeof crmData !== 'undefined' && typeof crmData.autoJsCacheClean !== 'undefined') {
+                return Boolean(crmData.autoJsCacheClean);
+            }
+            return Boolean(this.flag);
+        },
+
+        setFlag: function (enabled) {
+            this.flag = Boolean(enabled);
+            if (typeof crmData !== 'undefined') {
+                crmData.autoJsCacheClean = this.flag;
+            }
+            console.log('[CRM Cache] Flag toggled to:', this.flag);
+        },
+
+        get: function (key) {
+            const entry = this.cache.get(key);
+            if (!entry) return null;
+            return entry.data;
+        },
+
+        set: function (key, data) {
+            this.cache.set(key, { data: data, timestamp: Date.now() });
+        },
+
+        has: function (key) {
+            return this.cache.has(key);
+        },
+
+        /**
+         * Automatisches JS Cache Clean:
+         * Wird AUSSCHLIESSLICH bei partiellem Cache-Update ausgeführt, wenn Flag aktiv ist.
+         */
+        cleanPartial: function (componentKey, options) {
+            options = options || {};
+            if (!this.isFlagActive()) {
+                console.log('[CRM Cache] Partial update detected, but automatic JS cache clean is DISABLED by flag.');
+                return false;
+            }
+
+            const freshTimestamp = Date.now();
+            let clearedCount = 0;
+
+            // 1. In-Memory Cache Invalidation for matching component
+            if (componentKey) {
+                const normKey = String(componentKey).toLowerCase();
+                for (let k of Array.from(this.cache.keys())) {
+                    if (k.toLowerCase().indexOf(normKey) !== -1 || k.startsWith('preview_') || k.startsWith('partial_')) {
+                        this.cache.delete(k);
+                        clearedCount++;
+                    }
+                }
+            } else {
+                clearedCount = this.cache.size;
+                this.cache.clear();
+            }
+
+            // 2. SessionStorage / LocalStorage partial cleanup
+            try {
+                if (typeof sessionStorage !== 'undefined') {
+                    Object.keys(sessionStorage).forEach(function (k) {
+                        if (k.startsWith('crm_') && (!componentKey || k.indexOf(componentKey) !== -1)) {
+                            sessionStorage.removeItem(k);
+                            clearedCount++;
+                        }
+                    });
+                }
+            } catch (e) { }
+
+            // 3. Update preview iframe/embed cache busters (SWR freshness)
+            try {
+                const embeds = document.querySelectorAll('#x-sieben-pdf-preview embed, embed[data-crm-pdf]');
+                embeds.forEach(function (emb) {
+                    if (emb.src) {
+                        const cleanUrl = emb.src.split('?')[0];
+                        emb.src = cleanUrl + '?t=' + freshTimestamp + '&cv=' + freshTimestamp;
+                    }
+                });
+
+                const emailFrame = document.getElementById('crm-email-preview-iframe');
+                if (emailFrame && emailFrame.src) {
+                    let curSrc = emailFrame.src.replace(/([?&])(t|reload|cv)=[^&]*/g, '');
+                    let glue = curSrc.indexOf('?') === -1 ? '?' : '&';
+                    emailFrame.src = curSrc + glue + 'cv=' + freshTimestamp + '&reload=1';
+                }
+            } catch (e) { }
+
+            console.log(`[CRM Cache] ✓ Automatisches JS-Cache-Clean durchgeführt für: "${componentKey || 'all'}" (Flag: AKTIV, Keys bereinigt: ${clearedCount}, Version: ${crmData.cacheVersion || freshTimestamp})`);
+
+            // 4. Dispatch Custom Event for external listeners
+            document.dispatchEvent(new CustomEvent('crm:js-cache-cleaned', {
+                detail: {
+                    component: componentKey,
+                    timestamp: freshTimestamp,
+                    clearedCount: clearedCount
+                }
+            }));
+
+            return true;
+        },
+
+        cleanAll: function () {
+            return this.cleanPartial(null);
+        }
+    };
+})(window);
+
 document.addEventListener("DOMContentLoaded", function () {
     // --- Variables ---
     const table = document.querySelector(".js-sort-table");
@@ -290,6 +413,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 .then(res => res.json())
                 .then(data => {
                     if (data.success) {
+                        if (window.crmJsCache && typeof window.crmJsCache.cleanPartial === 'function') {
+                            window.crmJsCache.cleanPartial('status_' + entryId);
+                        }
                         if (pill && data.data.status_key) {
                             pill.className = pill.className.replace(/\bcrm-status-[a-z0-9_-]+\b/g, '').trim();
                             pill.classList.add('crm-status-' + data.data.status_key);
@@ -2383,6 +2509,9 @@ jQuery(document).ready(function ($) {
             success: function (res) {
                 $btn.prop('disabled', false).html(origHtml);
                 if (res.success) {
+                    if (window.crmJsCache && typeof window.crmJsCache.cleanPartial === 'function') {
+                        window.crmJsCache.cleanPartial('pdf_' + (res.data ? res.data.doc_type : docType));
+                    }
                     $status.text('✓ Aktualisiert!').css({ color: '#16a34a' }).fadeIn().delay(2500).fadeOut();
                     if (res.data && res.data.pdf_url) {
                         const freshUrl = res.data.pdf_url + '?t=' + new Date().getTime();
@@ -2470,6 +2599,9 @@ jQuery(document).ready(function ($) {
             success: function (res) {
                 $btn.prop('disabled', false);
                 if (res.success && res.data && res.data.html) {
+                    if (window.crmJsCache && typeof window.crmJsCache.cleanPartial === 'function') {
+                        window.crmJsCache.cleanPartial('pdf_' + (res.data ? res.data.doc_type : docType));
+                    }
                     $parent.html(res.data.html);
                     initPdfSectionSortables();
                     if (res.data.pdf_url) {
@@ -2552,6 +2684,9 @@ jQuery(document).ready(function ($) {
             success: function (res) {
                 $btn.prop('disabled', false);
                 if (res.success) {
+                    if (window.crmJsCache && typeof window.crmJsCache.cleanPartial === 'function') {
+                        window.crmJsCache.cleanPartial('email_subject_' + docType);
+                    }
                     const msg = (res.data && res.data.message) ? res.data.message : 'Betreffzeile gespeichert.';
                     $status.text('✓ ' + msg).css({ color: '#16a34a' }).fadeIn().delay(3000).fadeOut();
                 } else {

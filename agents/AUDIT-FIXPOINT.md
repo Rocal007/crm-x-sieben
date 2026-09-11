@@ -20,6 +20,8 @@ $$T(X^*) = X^*$$
 - **Idempotenter Cache-Operator $C$:**
   $$C(C(X)) = C(X)$$
   Wird ein unveränderter Status erneut aufgerufen, erfolgt kein überflüssiger Datenbank-Schreibvorgang.
+- **Automatischer JS-Cache-Clean mit Flag:**
+  Erfolgt eine partielle Zustandsänderung $\Delta(X_t, X_{t+1}) \neq 0$ (z. B. Sektionsupdate, Betreffzeile, Statusübergang), triggert der Operator $C_{\text{partial}}$ bei aktivem Flag (`crm_auto_js_cache_clean = true`) eine gezielte Invalidierung des JS-Asset-Caches und bereinigt clientseitig `window.crmJsCache`.
 - **Zustands-Diskrepanz $\Delta$:**
   $$\Delta(X_t, X_{t+1}) = 0 \implies \text{Fixpunkt erreicht}$$
 

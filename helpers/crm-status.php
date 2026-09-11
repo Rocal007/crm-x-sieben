@@ -563,6 +563,10 @@ add_action('wp_ajax_crm_update_entry_status', function () {
 
         $actions_html = function_exists('crm_render_entry_actions') ? crm_render_entry_actions($entry_id, $course_id, $status_key) : '';
 
+        $cache_res = function_exists('crm_on_partial_cache_update')
+            ? crm_on_partial_cache_update('status_' . $entry_id, $status_key)
+            : [];
+
         wp_send_json_success([
             'message'        => sprintf(__('Status auf "%s" geändert.', 'custom-crm'), $all_statuses[$status_key]['label']),
             'status_key'     => $status_key,
@@ -571,6 +575,7 @@ add_action('wp_ajax_crm_update_entry_status', function () {
             'date_formatted' => $date_formatted,
             'raw_date'       => $now,
             'actions_html'   => $actions_html,
+            'js_cache'       => $cache_res,
         ]);
     } else {
         wp_send_json_error(['message' => __('Status konnte nicht gespeichert werden.', 'custom-crm')]);

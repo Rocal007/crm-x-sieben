@@ -1524,11 +1524,17 @@ function crm_save_pdf_section_order(string $doc_type, array $ordered_sections, $
 
     if (!empty($entry_id)) {
         $opt_key = 'crm_pdf_sec_' . $doc_type . '_' . intval($entry_id);
-        return update_option($opt_key, $sanitized);
+        $saved = update_option($opt_key, $sanitized);
     } else {
         $opt_key = 'crm_pdf_section_order_' . $doc_type;
-        return update_option($opt_key, $sanitized);
+        $saved = update_option($opt_key, $sanitized);
     }
+
+    if ($saved && function_exists('crm_on_partial_cache_update')) {
+        crm_on_partial_cache_update('pdf_' . $doc_type, $entry_id);
+    }
+
+    return (bool) $saved;
 }
 
 /**
@@ -1544,11 +1550,17 @@ function crm_reset_pdf_section_order(string $doc_type, $entry_id = null): bool
 
     if (!empty($entry_id)) {
         $opt_key = 'crm_pdf_sec_' . $doc_type . '_' . intval($entry_id);
-        return delete_option($opt_key);
+        $deleted = delete_option($opt_key);
     } else {
         $opt_key = 'crm_pdf_section_order_' . $doc_type;
-        return delete_option($opt_key);
+        $deleted = delete_option($opt_key);
     }
+
+    if ($deleted && function_exists('crm_on_partial_cache_update')) {
+        crm_on_partial_cache_update('pdf_' . $doc_type, $entry_id);
+    }
+
+    return (bool) $deleted;
 }
 
 /**

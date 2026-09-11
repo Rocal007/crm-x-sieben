@@ -19,9 +19,10 @@
 
 // --- Core Setup & Helpers ---
 if (!defined('CRM_VERSION')) {
-    define('CRM_VERSION', '2.17.5');
+    define('CRM_VERSION', '2.18.0');
 }
 
+require_once __DIR__ . '/helpers/crm-cache.php';
 require_once __DIR__ . '/helpers/crm-status.php';
 require_once __DIR__ . '/helpers/crm-pdf-sections.php';
 require_once __DIR__ . '/helpers/crm-email-sections.php';
@@ -111,31 +112,36 @@ add_action('admin_enqueue_scripts', function ($hook) {
     $crm_pages = ['crm', 'crm-settings', 'crm-emails', 'crm-pdf'];
     if (isset($_GET['page']) && in_array($_GET['page'], $crm_pages, true)) {
         wp_enqueue_media();
-        if (!wp_script_is('custom-crm-admin', 'enqueued')) {
-            wp_enqueue_script(
-                'custom-crm-admin',
-                get_template_directory_uri() . '/inc/core/crm/assets/crm-admin.js',
-                ['jquery', 'jquery-ui-sortable'],
-                CRM_VERSION,
-                true
-            );
-            wp_localize_script('custom-crm-admin', 'crmData', [
-                'ajaxUrl' => admin_url('admin-ajax.php'),
-                'nonce'   => wp_create_nonce('crm_ajax_nonce'),
-            ]);
-            wp_localize_script('custom-crm-admin', 'xSiebenAjax', [
-                'ajax_url' => admin_url('admin-ajax.php'),
-                'nonce'    => wp_create_nonce('x_sieben_mailer_nonce'),
-            ]);
-        }
-        if (!wp_style_is('crm-admin-styles', 'enqueued')) {
-            wp_enqueue_style(
-                'crm-admin-styles',
-                get_template_directory_uri() . '/inc/core/crm/css/crm-admin.css',
-                [],
-                CRM_VERSION
-            );
-        }
+        $asset_ver = function_exists('crm_get_asset_version') ? crm_get_asset_version() : CRM_VERSION;
+
+        // Ensure fresh script registration with dynamic cache buster version
+        wp_deregister_script('custom-crm-admin');
+        wp_enqueue_script(
+            'custom-crm-admin',
+            get_template_directory_uri() . '/inc/core/crm/assets/crm-admin.js',
+            ['jquery', 'jquery-ui-sortable'],
+            $asset_ver,
+            true
+        );
+        wp_localize_script('custom-crm-admin', 'crmData', [
+            'ajaxUrl'          => admin_url('admin-ajax.php'),
+            'nonce'            => wp_create_nonce('crm_ajax_nonce'),
+            'autoJsCacheClean' => function_exists('crm_is_js_cache_clean_enabled') ? crm_is_js_cache_clean_enabled() : true,
+            'cacheVersion'     => function_exists('crm_get_js_cache_version') ? crm_get_js_cache_version() : '1',
+            'assetVersion'     => $asset_ver,
+        ]);
+        wp_localize_script('custom-crm-admin', 'xSiebenAjax', [
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce'    => wp_create_nonce('x_sieben_mailer_nonce'),
+        ]);
+
+        wp_deregister_style('crm-admin-styles');
+        wp_enqueue_style(
+            'crm-admin-styles',
+            get_template_directory_uri() . '/inc/core/crm/css/crm-admin.css',
+            [],
+            $asset_ver
+        );
     }
 }, 99);
 
@@ -360,12 +366,17 @@ add_action('wp_ajax_crm_save_pdf_section_order', function () {
             }
         }
 
+        $cache_res = function_exists('crm_on_partial_cache_update')
+            ? crm_on_partial_cache_update('pdf_' . $doc_type, $entry_id)
+            : [];
+
         wp_send_json_success([
             'message'   => __('PDF-Abschnittsreihenfolge erfolgreich gespeichert.', 'custom-crm'),
             'doc_type'  => $doc_type,
             'entry_id'  => $entry_id,
             'course_id' => $course_id,
             'pdf_url'   => $pdf_url,
+            'js_cache'  => $cache_res,
         ]);
     } else {
         wp_send_json_error(['message' => __('Fehler beim Speichern der Abschnittsreihenfolge.', 'custom-crm')]);
@@ -428,12 +439,17 @@ add_action('wp_ajax_crm_reset_pdf_section_order', function () {
         }
     }
 
+    $cache_res = function_exists('crm_on_partial_cache_update')
+        ? crm_on_partial_cache_update('pdf_' . $doc_type, $entry_id)
+        : [];
+
     wp_send_json_success([
         'message'   => __('Reihenfolge erfolgreich auf Standard zurückgesetzt.', 'custom-crm'),
         'html'      => $html,
         'doc_type'  => $doc_type,
         'course_id' => $course_id,
         'pdf_url'   => $pdf_url,
+        'js_cache'  => $cache_res,
     ]);
 });
 
@@ -477,10 +493,15 @@ add_action('wp_ajax_crm_save_email_section_order', function () {
             );
         }
 
+        $cache_res = function_exists('crm_on_partial_cache_update')
+            ? crm_on_partial_cache_update('email_' . $doc_type, $entry_id)
+            : [];
+
         wp_send_json_success([
             'message'  => __('E-Mail-Abschnittsreihenfolge erfolgreich gespeichert.', 'custom-crm'),
             'doc_type' => $doc_type,
             'entry_id' => $entry_id,
+            'js_cache' => $cache_res,
         ]);
     } else {
         wp_send_json_error(['message' => __('Fehler beim Speichern der E-Mail-Abschnittsreihenfolge.', 'custom-crm')]);
@@ -517,10 +538,15 @@ add_action('wp_ajax_crm_reset_email_section_order', function () {
     crm_render_email_sections_manager($doc_type, $entry_id, $is_sidebar);
     $html = ob_get_clean();
 
+    $cache_res = function_exists('crm_on_partial_cache_update')
+        ? crm_on_partial_cache_update('email_' . $doc_type, $entry_id)
+        : [];
+
     wp_send_json_success([
         'message'  => __('E-Mail-Abschnitte erfolgreich auf Standard zurückgesetzt.', 'custom-crm'),
         'html'     => $html,
         'doc_type' => $doc_type,
+        'js_cache' => $cache_res,
     ]);
 });
 
