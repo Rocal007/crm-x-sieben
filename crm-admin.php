@@ -168,6 +168,62 @@ add_action('admin_enqueue_scripts', function ($hook) {
             [],
             $asset_ver
         );
+
+        if (in_array($_GET['page'], ['crm-settings', 'crm-emails', 'crm-pdf'], true)) {
+            $all_fields  = get_option('crm_custom_fields', []);
+            $field_count = !empty($all_fields) && is_array($all_fields) ? max(array_keys($all_fields)) + 1 : 100;
+            $curr_user   = wp_get_current_user();
+
+            wp_enqueue_style(
+                'crm-settings-styles',
+                get_template_directory_uri() . '/inc/core/crm/css/crm-settings.css',
+                ['crm-admin-styles'],
+                $asset_ver
+            );
+
+            wp_enqueue_script(
+                'crm-settings-scripts',
+                get_template_directory_uri() . '/inc/core/crm/assets/crm-settings.js',
+                ['jquery', 'jquery-ui-sortable', 'custom-crm-admin'],
+                $asset_ver,
+                true
+            );
+
+            wp_localize_script('crm-settings-scripts', 'crmSettingsData', [
+                'ajaxUrl'           => admin_url('admin-ajax.php'),
+                'nonce'             => wp_create_nonce('crm_ajax_nonce'),
+                'nonceSaveField'    => wp_create_nonce('save_crm_field_individual'),
+                'noncePdfPreview'   => wp_create_nonce('crm_pdf_preview_nonce'),
+                'fieldCount'        => $field_count,
+                'currentUserEmail'  => ($curr_user && !empty($curr_user->user_email)) ? $curr_user->user_email : '',
+                'i18n'              => [
+                    'mediaError'        => __('Die WordPress Medienverwaltung konnte nicht geladen werden.', 'custom-crm'),
+                    'chooseLogo'        => __('Logo auswählen oder hochladen', 'custom-crm'),
+                    'useLogo'           => __('Als Logo verwenden', 'custom-crm'),
+                    'confirmDelete'     => __('Diesen Textbaustein wirklich löschen?', 'custom-crm'),
+                    'saveField'         => __('Feld speichern', 'custom-crm'),
+                    'newField'          => __('Neues Feld', 'custom-crm'),
+                    'saving'            => __('Speichern...', 'custom-crm'),
+                    'saved'             => __('Gespeichert!', 'custom-crm'),
+                    'applyOrder'        => __('Reihenfolge anwenden', 'custom-crm'),
+                    'applyEmailOrder'   => __('E-Mail-Reihenfolge anwenden', 'custom-crm'),
+                    'serverError'       => __('Serverfehler', 'custom-crm'),
+                    'errorSaving'       => __('Fehler beim Speichern', 'custom-crm'),
+                    'previewError'      => __('Fehler beim Generieren der Vorschau.', 'custom-crm'),
+                    'copied'            => __('Kopiert!', 'custom-crm'),
+                    'copyHtml'          => __('HTML kopieren', 'custom-crm'),
+                    'sending'           => __('Senden...', 'custom-crm'),
+                    'testMailSuccess'   => __('Test-Mail erfolgreich versendet!', 'custom-crm'),
+                    'testMailError'     => __('Fehler beim Versand der Test-Mail.', 'custom-crm'),
+                    'promptTestEmail'   => __('An welche E-Mail-Adresse soll die Test-Vorschau gesendet werden?', 'custom-crm'),
+                    'noHtmlAvailable'   => __('Kein HTML-Inhalt verfügbar. Bitte Vorschau neu laden.', 'custom-crm'),
+                    'clearingCache'     => __('Leeren...', 'custom-crm'),
+                    'cacheInvalidating' => __('Cache wird invalidiert...', 'custom-crm'),
+                    'cacheCleared'      => __('JS-Cache erfolgreich geleert!', 'custom-crm'),
+                    'cacheError'        => __('Fehler beim Leeren des Caches.', 'custom-crm'),
+                ]
+            ]);
+        }
     }
 }, 99);
 

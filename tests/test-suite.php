@@ -136,12 +136,18 @@ class CrmSeniorDevTestSuite
             $crmDir . '/crm-admin.php',
             $crmDir . '/crm-model.php',
             $crmDir . '/crm-settings.php',
+            $crmDir . '/controler/settings-controler.php',
+            $crmDir . '/controler/output-controler.php',
             $crmDir . '/helpers/normalize.php',
             $crmDir . '/helpers/crm-status.php',
             $crmDir . '/helpers/crm-cache.php',
             $crmDir . '/helpers/crm-email-sections.php',
             $crmDir . '/helpers/crm-pdf-sections.php',
-            $crmDir . '/controler/output-controler.php',
+            $crmDir . '/views/settings/tab-general.php',
+            $crmDir . '/views/settings/tab-emails.php',
+            $crmDir . '/views/settings/tab-pdf.php',
+            $crmDir . '/views/settings/components/field-editor.php',
+            $crmDir . '/views/settings/components/cheat-sheet.php',
         ];
 
         foreach ($filesToCheck as $file) {
