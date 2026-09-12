@@ -19,7 +19,7 @@
 
 // --- Core Setup & Helpers ---
 if (!defined('CRM_VERSION')) {
-    define('CRM_VERSION', '2.18.4');
+    define('CRM_VERSION', '2.18.17');
 }
 
 require_once __DIR__ . '/helpers/crm-cache.php';
@@ -863,6 +863,11 @@ function render_crm_admin_page()
                         echo '      <button type="button" class="crm-history-btn" data-entry-id="' . esc_attr($entry->entry_id) . '" title="' . esc_attr__('Status-Verlauf & Historie anzeigen', 'custom-crm') . '" aria-label="' . esc_attr__('Verlauf', 'custom-crm') . '">';
                         echo '        <span class="dashicons dashicons-backup"></span>';
                         echo '      </button>';
+                        $snap_count = function_exists('crm_get_entry_snapshots_count') ? crm_get_entry_snapshots_count($entry->entry_id) : 0;
+                        $snap_badge = ($snap_count > 0) ? '<span class="crm-snap-count-badge">' . $snap_count . '</span>' : '';
+                        echo '      <button type="button" class="crm-snapshots-btn" data-entry-id="' . esc_attr($entry->entry_id) . '" title="' . esc_attr(sprintf(__('Dokument- & Daten-Archiv (%d Snapshots)', 'custom-crm'), $snap_count)) . '" aria-label="' . esc_attr__('Archiv', 'custom-crm') . '">';
+                        echo '        <span class="dashicons dashicons-archive"></span>' . $snap_badge;
+                        echo '      </button>';
                         echo '    </div>';
                         echo '    <div class="crm-status-meta" title="' . esc_attr__('Letzte Statusaktualisierung', 'custom-crm') . '">';
                         echo '      <span class="dashicons dashicons-clock"></span>';
@@ -903,6 +908,36 @@ function render_crm_admin_page()
             <div id="crm-history-modal" style="background:#fff; border-radius:8px; width:90%; max-width:550px; max-height:85vh; overflow-y:auto; padding:20px; box-shadow:0 10px 25px rgba(0,0,0,0.25); position:relative;">
                 <div id="crm-history-modal-content">
                     <p style="text-align:center; padding:20px; color:#64748b;">⏳ Verlauf wird geladen...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- CRM Snapshots Modal -->
+        <div id="crm-snapshots-modal-backdrop" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:99998; align-items:center; justify-content:center;">
+            <div id="crm-snapshots-modal" style="background:#f8fafc; border-radius:10px; width:92%; max-width:720px; max-height:85vh; overflow-y:auto; padding:24px; box-shadow:0 20px 35px rgba(0,0,0,0.3); position:relative;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 16px;">
+                    <h3 style="margin: 0; font-size: 16px; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                        <span class="dashicons dashicons-archive" style="color: #007C90;"></span> <?php esc_html_e('Dokument- & Daten-Snapshots (Revisionssicher)', 'custom-crm'); ?>
+                    </h3>
+                    <button type="button" class="crm-close-snapshots-modal" style="background: none; border: none; font-size: 22px; color: #64748b; cursor: pointer; padding: 0 4px; line-height: 1;" title="<?php esc_attr_e('Schließen', 'custom-crm'); ?>">&times;</button>
+                </div>
+                <div id="crm-snapshots-modal-content">
+                    <p style="text-align:center; padding:20px; color:#64748b;">⏳ Snapshots werden geladen...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- CRM Snapshot Detail Modal (für E-Mail-Vorschau oder JSON-Daten) -->
+        <div id="crm-snapshot-detail-modal-backdrop" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:99999; align-items:center; justify-content:center;">
+            <div id="crm-snapshot-detail-modal" style="background:#ffffff; border-radius:10px; width:92%; max-width:850px; max-height:88vh; display:flex; flex-direction:column; box-shadow:0 25px 50px rgba(0,0,0,0.35); position:relative; overflow:hidden;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding: 14px 20px; background: #f8fafc;">
+                    <h3 id="crm-snapshot-detail-title" style="margin: 0; font-size: 15px; color: #1e293b; font-weight: 600;">
+                        <?php esc_html_e('Snapshot Details', 'custom-crm'); ?>
+                    </h3>
+                    <button type="button" class="crm-close-snapshot-detail" style="background: none; border: none; font-size: 24px; color: #64748b; cursor: pointer; padding: 0 4px; line-height: 1;" title="<?php esc_attr_e('Schließen', 'custom-crm'); ?>">&times;</button>
+                </div>
+                <div id="crm-snapshot-detail-body" style="padding: 20px; overflow-y: auto; flex: 1;">
+                    <!-- Dynamically populated -->
                 </div>
             </div>
         </div>

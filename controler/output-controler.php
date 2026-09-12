@@ -629,6 +629,25 @@ add_action('wp_ajax_x_sieben_send_mail', function () {
         crm_add_entry_status_history($entry_id, 'test_mail_gesendet', '🧪 Test-Mail gesendet', $note);
       }
 
+      // Revisionssicherer Snapshot auch für Test-Versand archivieren
+      if ($entry_id && function_exists('crm_create_document_snapshot')) {
+        crm_create_document_snapshot([
+          'entry_id'        => $entry_id,
+          'course_id'       => $course_id,
+          'doc_type'        => $context,
+          'status_key'      => 'test_mail_gesendet',
+          'recipient'       => $recipient,
+          'sent_targets'    => $sent_targets,
+          'subject'         => $subject,
+          'email_body_html' => $body,
+          'attachments'     => $attachments,
+          'crm_model'       => isset($crm_model) ? $crm_model : null,
+          'is_test'         => true,
+          'sent_by'         => get_current_user_id(),
+          'sent_at'         => $now_mysql,
+        ]);
+      }
+
       wp_send_json_success([
         'message'        => '🧪 Test-E-Mail erfolgreich gesendet an: ' . implode(', ', $sent_targets),
         'is_test'        => true,
@@ -692,6 +711,25 @@ add_action('wp_ajax_x_sieben_send_mail', function () {
         $note = sprintf('E-Mail an Kunden (%s) gesendet. Betreff: %s', $recipient, $subject);
       }
       crm_set_entry_status($entry_id, $status_key, $note, $now_mysql);
+    }
+
+    // Revisionssicherer Dokument- & Daten-Snapshot für Live-Versand archivieren
+    if ($entry_id && function_exists('crm_create_document_snapshot')) {
+      crm_create_document_snapshot([
+        'entry_id'        => $entry_id,
+        'course_id'       => $course_id,
+        'doc_type'        => $context,
+        'status_key'      => $status_key,
+        'recipient'       => $recipient,
+        'sent_targets'    => $sent_targets,
+        'subject'         => $subject,
+        'email_body_html' => $body,
+        'attachments'     => $attachments,
+        'crm_model'       => isset($crm_model) ? $crm_model : null,
+        'is_test'         => false,
+        'sent_by'         => get_current_user_id(),
+        'sent_at'         => $now_mysql,
+      ]);
     }
 
     wp_send_json_success([

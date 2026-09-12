@@ -2586,6 +2586,158 @@ function render_crm_settings_page()
             }
         });
 
+        function updateHfSummaryBadge($sec) {
+            const hMode = $sec.find('.crm-hf-header-mode').val() || $sec.data('header-mode') || 'master';
+            const fMode = $sec.find('.crm-hf-footer-mode').val() || $sec.data('footer-mode') || 'master';
+
+            let hLabel = 'H: Standard';
+            if (hMode === 'master') hLabel = 'H: Master';
+            else if (hMode === 'none') hLabel = 'H: Ohne';
+            else if (hMode === 'logo_only') hLabel = 'H: Nur Logo';
+            else if (hMode === 'address_only') hLabel = 'H: Nur Adr';
+            else if (hMode === 'custom') hLabel = 'H: Eigen';
+            else if (hMode === 'full') hLabel = 'H: Logo+Adr';
+
+            let fLabel = 'F: Standard';
+            if (fMode === 'master') fLabel = 'F: Master';
+            else if (fMode === 'none') fLabel = 'F: Ohne';
+            else if (fMode === 'page_numbers_only') fLabel = 'F: Nur Seite';
+            else if (fMode === 'company_only') fLabel = 'F: Nur Firma';
+            else if (fMode === 'full') fLabel = 'F: Firma+Dat+Seite';
+            else if (fMode === 'custom') fLabel = 'F: Eigen';
+
+            $sec.find('.crm-hf-summary-text').text(hLabel + ' | ' + fLabel);
+        }
+
+        // Toggle Header & Footer Drawer per Section
+        $(document).on('click', '.crm-toggle-hf-btn', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const item = $(this).closest('.crm-pdf-section-item');
+            item.find('> .crm-hf-drawer').slideToggle(180);
+        });
+
+        // Section Header Mode Change
+        $(document).on('change', '.crm-hf-header-mode', function() {
+            const $sec = $(this).closest('.crm-pdf-section-item');
+            const mode = $(this).val();
+            const $logoCb = $sec.find('.crm-hf-header-logo');
+            const $addrCb = $sec.find('.crm-hf-header-address');
+            const $customBox = $sec.find('.crm-hf-header-custom-box');
+
+            if (mode === 'full') {
+                $logoCb.prop('checked', true);
+                $addrCb.prop('checked', true);
+                $customBox.hide();
+            } else if (mode === 'logo_only') {
+                $logoCb.prop('checked', true);
+                $addrCb.prop('checked', false);
+                $customBox.hide();
+            } else if (mode === 'address_only') {
+                $logoCb.prop('checked', false);
+                $addrCb.prop('checked', true);
+                $customBox.hide();
+            } else if (mode === 'none') {
+                $logoCb.prop('checked', false);
+                $addrCb.prop('checked', false);
+                $customBox.hide();
+            } else if (mode === 'custom') {
+                $customBox.slideDown(150);
+            } else if (mode === 'master') {
+                $customBox.hide();
+            }
+            $sec.attr('data-header-mode', mode).data('header-mode', mode);
+            updateHfSummaryBadge($sec);
+        });
+
+        // Header Checkboxes change (manual override updates mode)
+        $(document).on('change', '.crm-hf-header-logo, .crm-hf-header-address', function() {
+            const $sec = $(this).closest('.crm-pdf-section-item');
+            const hasLogo = $sec.find('.crm-hf-header-logo').is(':checked');
+            const hasAddr = $sec.find('.crm-hf-header-address').is(':checked');
+            const $mode = $sec.find('.crm-hf-header-mode');
+
+            if (hasLogo && hasAddr) {
+                $mode.val('full');
+            } else if (hasLogo && !hasAddr) {
+                $mode.val('logo_only');
+            } else if (!hasLogo && hasAddr) {
+                $mode.val('address_only');
+            } else {
+                $mode.val('none');
+            }
+            $sec.find('.crm-hf-header-custom-box').hide();
+            $sec.attr('data-header-mode', $mode.val()).data('header-mode', $mode.val());
+            updateHfSummaryBadge($sec);
+        });
+
+        // Section Footer Mode Change
+        $(document).on('change', '.crm-hf-footer-mode', function() {
+            const $sec = $(this).closest('.crm-pdf-section-item');
+            const mode = $(this).val();
+            const $compCb = $sec.find('.crm-hf-footer-company');
+            const $pageCb = $sec.find('.crm-hf-footer-page-num');
+            const $dateCb = $sec.find('.crm-hf-footer-date');
+            const $customBox = $sec.find('.crm-hf-footer-custom-box');
+
+            if (mode === 'standard') {
+                $compCb.prop('checked', true);
+                $pageCb.prop('checked', true);
+                $dateCb.prop('checked', false);
+                $customBox.hide();
+            } else if (mode === 'full') {
+                $compCb.prop('checked', true);
+                $pageCb.prop('checked', true);
+                $dateCb.prop('checked', true);
+                $customBox.hide();
+            } else if (mode === 'page_numbers_only') {
+                $compCb.prop('checked', false);
+                $pageCb.prop('checked', true);
+                $dateCb.prop('checked', false);
+                $customBox.hide();
+            } else if (mode === 'company_only') {
+                $compCb.prop('checked', true);
+                $pageCb.prop('checked', false);
+                $dateCb.prop('checked', false);
+                $customBox.hide();
+            } else if (mode === 'none') {
+                $compCb.prop('checked', false);
+                $pageCb.prop('checked', false);
+                $dateCb.prop('checked', false);
+                $customBox.hide();
+            } else if (mode === 'custom') {
+                $customBox.slideDown(150);
+            } else if (mode === 'master') {
+                $customBox.hide();
+            }
+            $sec.attr('data-footer-mode', mode).data('footer-mode', mode);
+            updateHfSummaryBadge($sec);
+        });
+
+        // Footer Checkboxes change
+        $(document).on('change', '.crm-hf-footer-company, .crm-hf-footer-page-num, .crm-hf-footer-date', function() {
+            const $sec = $(this).closest('.crm-pdf-section-item');
+            const hasComp = $sec.find('.crm-hf-footer-company').is(':checked');
+            const hasPage = $sec.find('.crm-hf-footer-page-num').is(':checked');
+            const hasDate = $sec.find('.crm-hf-footer-date').is(':checked');
+            const $mode = $sec.find('.crm-hf-footer-mode');
+
+            if (hasComp && hasPage && hasDate) {
+                $mode.val('full');
+            } else if (hasComp && hasPage && !hasDate) {
+                $mode.val('standard');
+            } else if (!hasComp && hasPage && !hasDate) {
+                $mode.val('page_numbers_only');
+            } else if (hasComp && !hasPage && !hasDate) {
+                $mode.val('company_only');
+            } else {
+                $mode.val('none');
+            }
+            $sec.find('.crm-hf-footer-custom-box').hide();
+            $sec.attr('data-footer-mode', $mode.val()).data('footer-mode', $mode.val());
+            updateHfSummaryBadge($sec);
+        });
+
         $(document).on('click', '.crm-move-up-btn', function(e) {
             e.preventDefault();
             const item = $(this).closest('.crm-pdf-section-item');
@@ -2637,16 +2789,19 @@ function render_crm_settings_page()
                             subContent = sub.attr('data-content') || '';
                         }
 
-                        // If user edited in drawer without clicking 'Übernehmen'
+                        // Drawer-Werte übernehmen (auch wenn Drawer vor dem Speichern wieder geschlossen wurde)
                         const $drawer = sub.find('> .crm-sub-edit-drawer');
-                        if ($drawer.length && $drawer.is(':visible')) {
+                        if ($drawer.length) {
                             const $inputTitle = $drawer.find('.crm-sub-input-title');
                             const $inputContent = $drawer.find('.crm-sub-input-content');
                             if ($inputTitle.length && $inputTitle.val().trim()) {
                                 subTitle = $inputTitle.val().trim();
                             }
                             if ($inputContent.length) {
-                                subContent = $inputContent.val();
+                                const currentVal = $inputContent.val();
+                                if (currentVal !== '') {
+                                    subContent = currentVal;
+                                }
                             }
                         }
 

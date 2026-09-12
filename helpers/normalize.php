@@ -145,6 +145,325 @@ function crm_prepare_email_html_for_sending($body) {
  * @param int $padding_bottom Abstand nach unten in pt
  * @return string HTML-Trennlinie
  */
-function crm_pdf_divider(string $color = '#cbd5e1', int $padding_top = 4, int $padding_bottom = 4): string {
-    return '<table cellspacing="0" cellpadding="0" style="width: 100%; margin-top: ' . intval($padding_top) . 'pt; margin-bottom: ' . intval($padding_bottom) . 'pt;"><tr><td style="border-bottom: 1px solid ' . esc_attr($color) . '; height: 1px; font-size: 1pt;">&nbsp;</td></tr></table>';
+function crm_pdf_divider(string $color = '#cbd5e1', int $padding_top = 12, int $padding_bottom = 16): string {
+    $pt = max(4, intval($padding_top));
+    $pb = max(4, intval($padding_bottom));
+    return '<table cellspacing="0" cellpadding="0" border="0" style="width: 100%;">'
+        . '<tr><td style="height: ' . $pt . 'pt; font-size: ' . $pt . 'pt; line-height: ' . $pt . 'pt;">&nbsp;</td></tr>'
+        . '<tr><td style="border-top: 1px solid ' . esc_attr($color) . '; height: ' . $pb . 'pt; font-size: ' . $pb . 'pt; line-height: ' . $pb . 'pt;">&nbsp;</td></tr>'
+        . '</table>';
+}
+
+// Ensure TCPDF temporary cache directory is within WordPress uploads or CRM cache to eliminate open_basedir & permission restrictions on live Linux servers
+if (!defined('K_PATH_CACHE')) {
+    $crm_tcpdf_cache = null;
+    if (function_exists('wp_upload_dir')) {
+        $upload_dir = wp_upload_dir();
+        if (!empty($upload_dir['basedir'])) {
+            $candidate = $upload_dir['basedir'] . '/tcpdf/';
+            if (!file_exists($candidate)) {
+                @wp_mkdir_p($candidate);
+            }
+            if (is_dir($candidate) && is_writable($candidate)) {
+                $crm_tcpdf_cache = $candidate;
+            }
+        }
+    }
+    if (!$crm_tcpdf_cache) {
+        $candidate = dirname(__DIR__) . '/assets/cache/';
+        if (!file_exists($candidate)) {
+            @mkdir($candidate, 0755, true);
+        }
+        if (is_dir($candidate) && is_writable($candidate)) {
+            $crm_tcpdf_cache = $candidate;
+        }
+    }
+    if (!$crm_tcpdf_cache) {
+        $candidate = sys_get_temp_dir() . '/tcpdf/';
+        if (!file_exists($candidate)) {
+            @mkdir($candidate, 0755, true);
+        }
+        if (is_dir($candidate) && is_writable($candidate)) {
+            $crm_tcpdf_cache = $candidate;
+        } else {
+            $crm_tcpdf_cache = sys_get_temp_dir() . '/';
+        }
+    }
+    define('K_PATH_CACHE', trailingslashit(str_replace('\\', '/', $crm_tcpdf_cache)));
+}
+
+/**
+ * Flacht binäre PNG-Bilddaten in-memory auf einen reinweißen (#FFFFFF) 24-Bit-RGB-Hintergrund ab.
+ * 
+ * Beseitigt den Alpha-Kanal vollständig und verhindert den ImageMagick-7-Fehler auf Linux-Servern.
+ *
+ * @param string $binary_data Rohe PNG-Bytes
+ * @return string Abgeflachte PNG-Bytes (oder Originaldaten bei Fehler)
+ */
+function crm_flatten_png_binary_for_tcpdf(string $binary_data): string {
+    if (strlen($binary_data) < 8 || substr($binary_data, 0, 8) !== "\x89PNG\r\n\x1a\n") {
+        return $binary_data;
+    }
+
+    if (!extension_loaded('gd') || !function_exists('imagecreatefromstring')) {
+        return $binary_data;
+    }
+
+    $src = @imagecreatefromstring($binary_data);
+    if (!$src) {
+        return $binary_data;
+    }
+
+    $w = imagesx($src);
+    $h = imagesy($src);
+    if ($w <= 0 || $h <= 0) {
+        imagedestroy($src);
+        return $binary_data;
+    }
+
+    $dst = imagecreatetruecolor($w, $h);
+    $white = imagecolorallocate($dst, 255, 255, 255);
+    imagefilledrectangle($dst, 0, 0, $w, $h, $white);
+    imagealphablending($dst, true);
+    imagecopy($dst, $src, 0, 0, 0, 0, $w, $h);
+    imagealphablending($dst, false);
+    imagesavealpha($dst, false);
+
+    ob_start();
+    imagepng($dst, null, 6);
+    $flat_data = ob_get_clean();
+
+    imagedestroy($src);
+    imagedestroy($dst);
+
+    return (!empty($flat_data)) ? $flat_data : $binary_data;
+}
+
+/**
+ * Flacht ein transparentes PNG-Bild auf einen reinweißen (#FFFFFF) 24-Bit-RGB-Hintergrund ab.
+ * 
+ * Verhindert den berüchtigten ImageMagick-7-Fehler auf Linux-Servern (PHP 8.x), bei dem
+ * TCPDFs ImagePngAlpha() mit separateImageChannel(39) schwarze Streifen, Balken oder
+ * komplett schwarze Masken bei transparenten PNGs erzeugt.
+ * Durch das Abflachen entfällt der Alpha-Kanal vollständig (Truecolor RGB, Farbmodus 2,
+ * keine tRNS-Chunks), wodurch TCPDF die Datei nativ und fehlerfrei über GD/DeviceRGB einbettet.
+ *
+ * @param string $local_file Absoluter Pfad zum lokalen Bild
+ * @return string Pfad zur abgeflachten PNG-Datei (oder Originalpfad bei Fehler/Nicht-PNG)
+ */
+function crm_flatten_png_for_tcpdf(string $local_file): string {
+    if (!@file_exists($local_file) || !@is_readable($local_file)) {
+        return $local_file;
+    }
+
+    // Nur PNG-Dateien prüfen und transformieren
+    $is_png = preg_match('/\.png$/i', $local_file) || (function_exists('exif_imagetype') && @exif_imagetype($local_file) === IMAGETYPE_PNG);
+    if (!$is_png) {
+        return $local_file;
+    }
+
+    $cache_dir = dirname(__DIR__) . '/assets/cache/';
+    if (!is_dir($cache_dir)) {
+        @wp_mkdir_p($cache_dir);
+    }
+
+    $filename = basename($local_file);
+    // 1. Prüfen, ob bereits eine vorkompilierte flat_<name> Datei im autarken Cache liegt
+    $named_cache = $cache_dir . 'flat_' . $filename;
+    if (@file_exists($named_cache) && @filesize($named_cache) > 0) {
+        return $named_cache;
+    }
+
+    // 2. Prüfen, ob via MD5 gehasht im Cache vorhanden
+    $file_hash = @md5_file($local_file) ?: md5($local_file);
+    $hashed_cache = $cache_dir . 'flat_' . $file_hash . '.png';
+    if (@file_exists($hashed_cache) && @filesize($hashed_cache) > 0) {
+        return $hashed_cache;
+    }
+
+    // 3. Wenn noch nicht im Cache: Dynamisch mit GD abflachen
+    if (!extension_loaded('gd') || !function_exists('imagecreatefrompng') || !function_exists('imagecreatetruecolor')) {
+        return $local_file;
+    }
+
+    $src = @imagecreatefrompng($local_file);
+    if (!$src) {
+        $raw = @file_get_contents($local_file);
+        if ($raw) {
+            $src = @imagecreatefromstring($raw);
+        }
+    }
+
+    if (!$src) {
+        return $local_file;
+    }
+
+    $w = imagesx($src);
+    $h = imagesy($src);
+    if ($w <= 0 || $h <= 0) {
+        imagedestroy($src);
+        return $local_file;
+    }
+
+    $dst = imagecreatetruecolor($w, $h);
+    $white = imagecolorallocate($dst, 255, 255, 255);
+    imagefilledrectangle($dst, 0, 0, $w, $h, $white);
+    imagealphablending($dst, true);
+    imagecopy($dst, $src, 0, 0, 0, 0, $w, $h);
+    imagealphablending($dst, false);
+    imagesavealpha($dst, false);
+
+    // Versuche in den autarken Cache zu schreiben
+    $target = (is_dir($cache_dir) && is_writable($cache_dir))
+        ? $hashed_cache
+        : (defined('K_PATH_CACHE') ? (K_PATH_CACHE . 'flat_' . $file_hash . '.png') : (sys_get_temp_dir() . '/flat_' . $file_hash . '.png'));
+
+    $saved = @imagepng($dst, $target, 6);
+
+    imagedestroy($src);
+    imagedestroy($dst);
+
+    if ($saved && @file_exists($target) && @filesize($target) > 0) {
+        return $target;
+    }
+
+    return $local_file;
+}
+
+/**
+ * Löst einen CRM-Asset-Pfad, Bild-URL oder Dateinamen zum optimalen,
+ * ausfallsicheren Format für TCPDF auf.
+ *
+ * Sucht die Datei lokal im Dateisystem (Autarkes CRM-Assets-Verzeichnis, Theme,
+ * Uploads, Media-Library). Flacht alle transparenten PNGs automatisch auf
+ * einen weißen Hintergrund ab (beseitigt ImageMagick-7-Schwarze-Streifen-Bug auf Linux).
+ * Liefert für maximale Kompatibilität mit TCPDF und zur Vermeidung von
+ * Loopback-cURL-Blockaden / Firewall-Sperren auf Live-Servern einen nativen
+ * TCPDF Data-Stream ('@' . base64_encode(binary)) zurück.
+ *
+ * @param string $path_or_filename Dateiname (z.B. 'xsieben_logo.png') oder vollständige URL/Pfad
+ * @return string TCPDF Data-Stream (@base64), lokaler Dateipfad oder Original-URL
+ */
+function crm_resolve_asset_path(string $path_or_filename): string
+{
+    $input = trim($path_or_filename);
+    if (empty($input)) {
+        return '';
+    }
+
+    // Falls bereits als TCPDF Data-Stream übergeben: auf Alpha-Kanal prüfen & ggf. in-memory abflachen
+    if ($input[0] === '@') {
+        $bin = @base64_decode(substr($input, 1));
+        if ($bin && strlen($bin) >= 8 && substr($bin, 0, 8) === "\x89PNG\r\n\x1a\n") {
+            $flat_bin = crm_flatten_png_binary_for_tcpdf($bin);
+            return '@' . base64_encode($flat_bin);
+        }
+        return $input;
+    }
+
+    $local_file = null;
+    $crm_dir    = dirname(__DIR__) . '/assets/';
+    $cache_dir  = $crm_dir . 'cache/';
+    $filename   = basename($input);
+
+    // 1. Direktes file_exists (falls absoluter lokaler Pfad übergeben)
+    if (@file_exists($input) && @is_file($input) && @is_readable($input)) {
+        $local_file = $input;
+    }
+
+    // 2. Bereits als abgeflachtes Bild im Cache vorhanden?
+    if (!$local_file && @file_exists($cache_dir . 'flat_' . $filename) && @is_file($cache_dir . 'flat_' . $filename)) {
+        $local_file = $cache_dir . 'flat_' . $filename;
+    }
+
+    // 3. Im autarken CRM-Assets-Verzeichnis (relative to codebase - 100% autark!)
+    if (!$local_file && @file_exists($crm_dir . $filename) && @is_file($crm_dir . $filename)) {
+        $local_file = $crm_dir . $filename;
+    }
+
+    // 4. Im Theme-Verzeichnis (get_template_directory)
+    if (!$local_file && function_exists('get_template_directory')) {
+        $theme_asset = get_template_directory() . '/inc/core/crm/assets/' . $filename;
+        if (@file_exists($theme_asset) && @is_file($theme_asset)) {
+            $local_file = $theme_asset;
+        }
+    }
+
+    // 5. Wenn es eine Media-Library URL ist: attachment_url_to_postid
+    if (!$local_file && function_exists('attachment_url_to_postid') && preg_match('#^https?://#i', $input)) {
+        $att_id = attachment_url_to_postid($input);
+        if ($att_id && function_exists('get_attached_file')) {
+            $att_path = get_attached_file($att_id);
+            if ($att_path && @file_exists($att_path) && @is_file($att_path)) {
+                $local_file = $att_path;
+            }
+        }
+    }
+
+    // 6. Wenn Pfad /uploads/ enthält: lokales Uploads-Verzeichnis auflösen
+    if (!$local_file && function_exists('wp_upload_dir')) {
+        $upload_dir = wp_upload_dir();
+        if (!empty($upload_dir['basedir'])) {
+            if (preg_match('#/uploads/(.+)$#i', $input, $m)) {
+                $candidate = rtrim($upload_dir['basedir'], '/\\') . '/' . ltrim($m[1], '/\\');
+                $candidate = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $candidate);
+                if (@file_exists($candidate) && @is_file($candidate)) {
+                    $local_file = $candidate;
+                }
+            }
+        }
+    }
+
+    // 7. Wenn Pfad /wp-content/ enthält: WP_CONTENT_DIR auflösen
+    if (!$local_file && defined('WP_CONTENT_DIR')) {
+        if (preg_match('#/wp-content/(.+)$#i', $input, $m)) {
+            $candidate = rtrim(WP_CONTENT_DIR, '/\\') . '/' . ltrim($m[1], '/\\');
+            $candidate = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $candidate);
+            if (@file_exists($candidate) && @is_file($candidate)) {
+                $local_file = $candidate;
+            }
+        }
+    }
+
+    // 8. Wenn lokale Datei gefunden wurde: Bei PNG abflachen und als TCPDF Data-Stream (@base64) zurückgeben!
+    if ($local_file && @is_readable($local_file)) {
+        $final_file = crm_flatten_png_for_tcpdf($local_file);
+        $content = @file_get_contents($final_file);
+        if ($content !== false && strlen($content) > 0) {
+            return '@' . base64_encode($content);
+        }
+        return str_replace('\\', '/', $final_file);
+    }
+
+    // 9. Fallback für Remote-URLs: Über WordPress HTTP API laden, bei PNG abflachen und als @base64 übergeben
+    if (preg_match('#^https?://#i', $input) && function_exists('wp_remote_get')) {
+        $response = wp_remote_get($input, [
+            'timeout'   => 8,
+            'sslverify' => false,
+        ]);
+        if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
+            $body = wp_remote_retrieve_body($response);
+            if (!empty($body)) {
+                $body = crm_flatten_png_binary_for_tcpdf($body);
+                return '@' . base64_encode($body);
+            }
+        }
+    }
+
+    // 10. Letzter Ausfallschutz für Logos: Default xsieben_logo.png (abgeflacht) als @base64 laden
+    $default_logo_file = $crm_dir . 'xsieben_logo.png';
+    if (@file_exists($default_logo_file) && @is_readable($default_logo_file)) {
+        $flat_logo = crm_flatten_png_for_tcpdf($default_logo_file);
+        $content = @file_get_contents($flat_logo);
+        if ($content !== false && strlen($content) > 0) {
+            return '@' . base64_encode($content);
+        }
+    }
+
+    // Letzter Fallback: URL
+    if (function_exists('get_template_directory_uri')) {
+        return get_template_directory_uri() . '/inc/core/crm/assets/' . $filename;
+    }
+
+    return $input;
 }

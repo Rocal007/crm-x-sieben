@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/helpers/normalize.php';
+require_once __DIR__ . '/helpers/crm-pdf-presenter.php';
 
 class CRM_Model
 {
@@ -830,8 +831,10 @@ class CRM_Model
         foreach ($icons as $prop => $config) {
             $width_attr = !empty($config['width']) ? " width=\"{$config['width']}\"" : '';
             $style_attr = isset($config['style']) ? " style=\"{$config['style']}\"" : '';
-            // For TCPDF: use local filesystem path if file exists to prevent slow/blocked HTTP loopback requests
-            $img_src = (file_exists($assets_dir . $config['file'])) ? ($assets_dir . $config['file']) : ($assets_url . $config['file']);
+            // Use centralized resolver: local filesystem path preferred, URL fallback
+            $img_src = function_exists('crm_resolve_asset_path')
+                ? crm_resolve_asset_path($config['file'])
+                : ((file_exists($assets_dir . $config['file'])) ? ($assets_dir . $config['file']) : ($assets_url . $config['file']));
             $this->$prop = sprintf(
                 '<img%s%s src="%s">',
                 $width_attr,
@@ -842,21 +845,11 @@ class CRM_Model
 
         // Falls ein benutzerdefiniertes Logo in den CRM-Einstellungen hinterlegt ist, dieses für das Hauptlogo verwenden
         if (!empty($this->company_logo_url)) {
-            $logo_src = $this->company_logo_url;
-            // Resolve local filesystem path if available
-            $upload_dir = wp_upload_dir();
-            $base_url   = $upload_dir['baseurl'] ?? '';
-            $base_dir   = $upload_dir['basedir'] ?? '';
-            if (!empty($base_url) && !empty($base_dir) && strpos($logo_src, $base_url) !== false) {
-                $local_candidate = str_replace($base_url, $base_dir, $logo_src);
-                if (file_exists($local_candidate)) {
-                    $logo_src = $local_candidate;
-                }
-            } elseif (file_exists($assets_dir . basename($logo_src))) {
-                $logo_src = $assets_dir . basename($logo_src);
-            }
+            $logo_src = function_exists('crm_resolve_asset_path')
+                ? crm_resolve_asset_path($this->company_logo_url)
+                : $this->company_logo_url;
             $this->xsieben_logo = sprintf(
-                '<img width="200px" style="max-width:200px; height:auto;" src="%s">',
+                '<img width="200" style="max-width:200px; height:auto;" src="%s">',
                 esc_attr($logo_src)
             );
         }
@@ -875,170 +868,24 @@ class CRM_Model
 
     /**
      * Generiert HTML für die Module und Zeiteinteilung, basierend auf den ACF-Daten.
-     * Strukturiert die Gliederung, Zeiteinteilung und Mehrwerte in ein sauberes Tabellenlayout.
+     * Delegiert an CRM_Pdf_Presenter zur Wahrung von Separation of Concerns (SoC).
      *
      * @return string Der generierte HTML-Tabellen-String der Module.
      */
     private function get_module_html(): string
     {
-        if (!have_rows('module', $this->post_id)) {
-            return '';
-        }
-
-        $module_rows    = [];
-        $breakdown_rows = [];
-        $extra_rows     = [];
-        $section_title  = '';
-
-        while (have_rows('module', $this->post_id)) {
-            the_row();
-            $mod = trim((string) get_sub_field('modul'));
-            $tit = trim((string) get_sub_field('modul_titel'));
-            $le  = trim((string) get_sub_field('anzahl_le'));
-
-            // Leere Zeilen komplett überspringen
-            if (empty($mod) && empty($tit) && empty($le)) {
-                continue;
-            }
-
-            // Erkennung von Zwischenüberschriften wie "< IHR MEHRWERT >"
-            $tit_clean = trim(str_replace(['<', '>', '&lt;', '&gt;', '&LT;', '&GT;'], '', $tit));
-            if (empty($mod) && empty($le) && !empty($tit_clean) && (strpos($tit, '<') !== false || mb_strtoupper($tit_clean) === $tit_clean)) {
-                $section_title = $tit_clean;
-                continue;
-            }
-
-            // Emojis aus Modul-Labels bereinigen (verhindert '??' in TCPDF DejaVu Sans)
-            $mod_clean = trim(preg_replace('/[\x{1F000}-\x{1FFFF}\x{2600}-\x{26FF}\x{2700}-\x{27BF}\x{FE00}-\x{FE0F}]/u', '', $mod));
-
-            // Prüfen, ob es sich um die Zeiteinteilung / Lehreinheiten-Aufteilung handelt (+, ->, -)
-            if (in_array($mod, ['+', '->', '-']) || (!empty($le) && !preg_match('/^modul\b/i', $mod) && !preg_match('/^abschnitt\b/i', $mod))) {
-                $prefix = in_array($mod, ['+', '->', '-']) ? $mod : '•';
-                $breakdown_rows[] = [
-                    'prefix' => $prefix,
-                    'titel'  => $tit,
-                    'le'     => $le
-                ];
-            } elseif (stripos($mod_clean, 'inklusive') !== false || stripos($mod_clean, 'mehrwert') !== false) {
-                $extra_rows[] = [
-                    'label' => !empty($mod_clean) ? $mod_clean : 'INKLUSIVE',
-                    'titel' => $tit
-                ];
-            } else {
-                $module_rows[] = [
-                    'modul' => !empty($mod_clean) ? $mod_clean : $mod,
-                    'titel' => $tit,
-                    'le'    => $le
-                ];
-            }
-        }
-
-        if (empty($module_rows) && empty($breakdown_rows) && empty($extra_rows)) {
-            return '';
-        }
-
-        $html = '';
-
-        // 1. Modul- und Themeninhalte
-        if (!empty($module_rows)) {
-            $html .= '<table cellpadding="4" cellspacing="0" style="width: 100%; border-collapse: collapse; font-size: 10pt;">';
-            $html .= '<thead>
-                <tr style="background-color: #f1f5f9; border-bottom: 1.5px solid #007C90;">
-                    <th style="width: 20%; text-align: left; color: #007C90; font-weight: bold;">Gliederung</th>
-                    <th style="width: 70%; text-align: left; color: #007C90; font-weight: bold;">Beschreibung</th>
-                    <th style="width: 10%; text-align: right; color: #007C90; font-weight: bold;">LE</th>
-                </tr>
-            </thead><tbody>';
-
-            foreach ($module_rows as $row) {
-                $html .= '<tr>
-                    <td valign="top" style="width: 20%; font-weight: bold; color: #1e293b; padding-top: 4px; padding-bottom: 4px;">' . esc_html($row['modul']) . '</td>
-                    <td valign="top" style="width: 70%; color: #334155; padding-top: 4px; padding-bottom: 4px;">' . esc_html($row['titel']) . '</td>
-                    <td valign="top" style="width: 10%; text-align: right; color: #64748b; padding-top: 4px; padding-bottom: 4px;">' . (!empty($row['le']) ? esc_html($row['le']) : '') . '</td>
-                </tr>';
-            }
-            $html .= '</tbody></table>';
-        }
-
-        // 2. Zeiteinteilung / Lehreinheiten-Aufteilung (Layout exakt wie "Ihre Investition")
-        if (!empty($breakdown_rows)) {
-            if (!empty($html)) {
-                $html .= '<div style="font-size:10pt">&nbsp;</div>';
-            }
-            $total_breakdown_le = 0;
-            $html .= '<table cellpadding="6" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 10pt;">';
-            $html .= '<thead>
-                <tr style="background-color:#f2f2f2;">
-                    <th style="text-align:left; width:85%; border-bottom:1px solid #aaa; font-weight: bold; color: #1e293b;">Zeiteinteilung / Lehreinheiten</th>
-                    <th style="text-align:right; width:15%; border-bottom:1px solid #aaa; font-weight: bold; color: #1e293b;">LE</th>
-                </tr>
-            </thead><tbody>';
-
-            foreach ($breakdown_rows as $row) {
-                $le_num = intval(preg_replace('/[^0-9]/', '', $row['le']));
-                $total_breakdown_le += $le_num;
-
-                $clean_tit = ltrim($row['titel'], "+-• \t\n\r");
-                $prefix_symbol = !empty($row['prefix']) ? $row['prefix'] : '+';
-                $prefix_html = '<span style="color: #007C90; font-weight: bold;">' . esc_html($prefix_symbol) . '</span> ';
-
-                $html .= '<tr>
-                    <td style="width:85%; color: #334155; line-height: 1.4;">' . $prefix_html . esc_html($clean_tit) . '</td>
-                    <td style="width:15%; text-align:right; font-weight: bold; color: #0f172a;">' . esc_html($row['le']) . '</td>
-                </tr>';
-                $html .= '<tr><td colspan="2" style="border-bottom:0.5pt dashed #ccc;"></td></tr>';
-            }
-
-            // Summenzeile wie bei "Ihre Investition" (Gesamt Brutto)
-            if ($total_breakdown_le > 0) {
-                $html .= '<tr style="background-color:#f9f9f9;">
-                    <td style="width:85%;"><strong>Gesamt Lehreinheiten</strong></td>
-                    <td style="width:15%; text-align:right;"><strong>' . $total_breakdown_le . ' LE</strong></td>
-                </tr>';
-            }
-
-            $html .= '</tbody></table>';
-        }
-
-        // 3. Mehrwert / Inklusive Leistungen
-        if (!empty($extra_rows) || !empty($section_title)) {
-            if (!empty($html)) {
-                $html .= '<div style="font-size:10pt">&nbsp;</div>';
-            }
-            $raw_title = !empty($section_title) ? $section_title : 'Ihr Mehrwert';
-            $clean_title = trim(str_replace(['<', '>', '&lt;', '&gt;', '&LT;', '&GT;'], '', html_entity_decode($raw_title, ENT_QUOTES, 'UTF-8')));
-            $clean_title = !empty($clean_title) ? mb_strtoupper($clean_title, 'UTF-8') : 'IHR MEHRWERT';
-            $html .= '<table cellpadding="5" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 10pt;">
-                <thead>
-                    <tr style="background-color: #f2f2f2;">
-                        <th colspan="2" style="text-align: left; border-bottom: 1px solid #aaa; font-weight: bold; color: #007C90;">&lt; ' . esc_html($clean_title) . ' &gt;</th>
-                    </tr>
-                </thead>
-                <tbody>';
-            foreach ($extra_rows as $row) {
-                $html .= '<tr>
-                    <td valign="top" style="width: 25%; font-weight: bold; color: #007C90; padding-top: 4px; padding-bottom: 4px;">' . esc_html($row['label']) . '</td>
-                    <td valign="top" style="width: 75%; color: #334155; padding-top: 4px; padding-bottom: 4px;">' . esc_html($row['titel']) . '</td>
-                </tr>
-                <tr><td colspan="2" style="border-bottom: 0.5pt dashed #ccc;"></td></tr>';
-            }
-            $html .= '</tbody></table>';
-        }
-
-        return $html;
+        return CRM_Pdf_Presenter::render_module_html($this->post_id);
     }
 
     /**
      * Gibt den HTML-Code für die Anmelde- und AGB-Hinweise zurück.
+     * Delegiert an CRM_Pdf_Presenter.
+     *
      * @return string Der HTML-String mit AGB- und Datenschutzlinks.
      */
-    private function get_anmeldung_agb_html()
+    private function get_anmeldung_agb_html(): string
     {
-        $agb_custom = $this->get_crm_field('AGB text');
-        if (!empty(trim(strip_tags($agb_custom)))) {
-            return $agb_custom;
-        }
-        return '<p>Mit Ihrer Anmeldung bestätigen Sie die <a href="https://x-sieben.at/wp-content/uploads/2025/09/AGB_X_SIEBEN_2025.pdf">AGB</a> samt Widerrufsbelehrung der X SIEBEN Wirtschaftstraining GmbH gelesen und akzeptiert zu haben. Diese finden Sie auf unserer Website unter ‚AGB‘ oder auf Wunsch per E-Mail. Die Datenschutzerklärung finden Sie <a href="https://x-sieben.at/datenschutzerklaerung/">hier</a></p>';
+        return CRM_Pdf_Presenter::render_anmeldung_agb((string)$this->get_crm_field('AGB text'));
     }
 
     /**
@@ -1113,9 +960,11 @@ class CRM_Model
 
     /**
      * Generiert einen HTML-Tabellen-String mit den vollständigen Bildern der Zertifizierungen.
+     * Delegiert die Tabellenerstellung an CRM_Pdf_Presenter.
+     *
      * @return string Der HTML-Tabellen-String mit Zertifizierungsbildern.
      */
-    private function get_zertifizierungen_images_html()
+    private function get_zertifizierungen_images_html(): string
     {
         $zert_images_src = [];
         $ca_meta = get_post_meta($this->post_id, "zertifikate", true);
@@ -1144,15 +993,7 @@ class CRM_Model
                 wp_reset_postdata();
             }
         }
-        $zert_images = '<table cellpadding="0" cellspacing="5" border="0"><tr>';
-        foreach ($zert_images_src as $image) {
-            $zert_images .= '
-            <td cellpadding="6" style="width:58px; height:34px; border: 1px solid #cbd5e1; text-align: center; vertical-align: middle;">
-                <img src="' . esc_attr($image) . '" style="max-width: 100%; max-height: 24px;">
-            </td>';
-        }
-        $zert_images .= '</tr></table>';
-        return $zert_images;
+        return CRM_Pdf_Presenter::render_zertifizierungen_images($zert_images_src);
     }
 
     private function get_accordion_content_by_title($accordionData, $partialTitle)
@@ -1173,6 +1014,8 @@ class CRM_Model
 
     /**
      * Ruft dynamische Inhalte aus den Post-Metadaten ab und formatiert sie als Modul-HTML.
+     * Delegiert die Formatierung an CRM_Pdf_Presenter.
+     *
      * @param string $accordion_title Der Titel des Akkordeon-Eintrags.
      * @return string Der generierte HTML-Inhalt für die Module oder eine Standardnachricht.
      */
@@ -1181,213 +1024,21 @@ class CRM_Model
         $accordion_data = get_post_meta($this->post_id, 'courses_accordion', true);
         $content = $this->get_accordion_content_by_title($accordion_data, $accordion_title);
         if ($content) {
-            return $this->_format_content_modules($content);
+            return CRM_Pdf_Presenter::_format_content_modules($content);
         }
         return '<p>Keine Inhalte gefunden.</p>';
     }
 
     /**
      * Teilt den gegebenen String in Module auf und formatiert sie als sauberes HTML für TCPDF.
-     * Bereinigt verwaiste Tags, unpassende Doppelpunkte, leere Headings und optimiert Listen & Abstände.
+     * Delegiert an CRM_Pdf_Presenter.
      *
      * @param string $content Der String, der die Moduldaten enthält.
      * @return string Der generierte HTML-Code für die Module.
      */
     private function _format_content_modules(string $content): string
     {
-        if (empty(trim($content))) {
-            return '<p>Keine Inhalte gefunden.</p>';
-        }
-
-        // 1. Whitespace & Sonderzeichen normalisieren
-        $content = str_replace(["\r\n", "\r"], "\n", $content);
-        $content = str_replace(["\xc2\xa0", '&nbsp;'], ' ', $content);
-
-        // 2. Ungewollte Buttons und Links bereinigen
-        $content = preg_replace('/<a[^>]*>\s*<button[^>]*>.*?<\/button>\s*<\/a>/isu', '', $content);
-        $content = preg_replace('/<button[^>]*>.*?<\/button>/isu', '', $content);
-
-        // 3. Leere HTML-Tags und Spacer entfernen
-        $content = preg_replace('/<h[1-6][^>]*>\s*<\/h[1-6]>/iu', '', $content);
-        $content = preg_replace('/<p[^>]*>\s*<\/p>/iu', '', $content);
-        $content = preg_replace('/<div[^>]*>\s*<\/div>/iu', '', $content);
-        $content = preg_replace('/<div[^>]*>\s*<hr[^>]*>\s*<\/div>/iu', '<hr />', $content);
-
-        // 4. Modul-Grenzen identifizieren
-        $mod_pattern = '/(?:<hr[^>]*>\s*)?(?:<(?:h[1-6]|p|div)[^>]*>\s*)?(?:<(?:strong|b|span|em)[^>]*>\s*)*\b(?<!\bin\s)(?<!\bim\s)(?<!\baus\s)(?<!\bvon\s)(?<!\bab\s)(?<!\bmit\s)(?<!\bjedem\s)(?<!\bdiesem\s)modul\s+(\d+|[ivxlcdm]+|ki)\b(?:\s*<\/(?:strong|b|span|em)>)*\s*[:\s–\-]*/iu';
-
-        if (!preg_match_all($mod_pattern, $content, $matches, PREG_OFFSET_CAPTURE)) {
-            return $this->_clean_generic_section_html($content);
-        }
-
-        $num_modules = count($matches[0]);
-        $output = '';
-
-        // Intro-Sektion vor dem ersten Modul
-        $first_offset = $matches[0][0][1];
-        if ($first_offset > 0) {
-            $intro = substr($content, 0, $first_offset);
-            $clean_intro = $this->_clean_generic_section_html($intro);
-            if (!empty(trim($clean_intro))) {
-                $output .= '<div class="modul-intro">' . $clean_intro . '</div>';
-            }
-        }
-
-        // Module durchlaufen
-        for ($i = 0; $i < $num_modules; $i++) {
-            $mod_num = strtoupper(trim($matches[1][$i][0]));
-            $start_pos = $matches[0][$i][1] + strlen($matches[0][$i][0]);
-            $end_pos = ($i + 1 < $num_modules) ? $matches[0][$i + 1][1] : strlen($content);
-            $mod_chunk = substr($content, $start_pos, $end_pos - $start_pos);
-
-            // Abschluss-Sektion beim letzten Modul prüfen
-            $closing_html = '';
-            if ($i === $num_modules - 1) {
-                $closing_pattern = '/(?:<hr[^>]*>\s*)?(?:<(?:h[1-6]|p|div)[^>]*>\s*)?(?:<(?:strong|b|span|em)[^>]*>\s*)*(?:Lehrgangsabschluss|Abschluss\s*&amp;\s*Zertifizierung|Abschluss\s*&amp;\s*Diplom|Abschluss\s*:\s*Diplom|Abschluss\s*Diplom|Voraussetzungen\s+zum\s+Erwerb\s+des\s+Diploms)\b/iu';
-                if (preg_match($closing_pattern, $mod_chunk, $closing_match, PREG_OFFSET_CAPTURE)) {
-                    $closing_pos = $closing_match[0][1];
-                    $closing_chunk = substr($mod_chunk, $closing_pos);
-                    $mod_chunk = substr($mod_chunk, 0, $closing_pos);
-                    $closing_html = $this->_clean_closing_section_html($closing_chunk);
-                }
-            }
-
-            // Titel und Body trennen
-            list($mod_title, $mod_body) = $this->_extract_module_title_and_body($mod_chunk);
-
-            // Modul-Überschrift zusammenbauen
-            $heading_text = 'MODUL ' . $mod_num;
-            if (!empty($mod_title)) {
-                $heading_text .= ': ' . $mod_title;
-            }
-
-            $output .= '<h3 class="modul-heading">' . esc_html($heading_text) . '</h3>';
-            $output .= '<div class="modul-body">' . $this->_clean_module_body_html($mod_body) . '</div>';
-
-            if (!empty($closing_html)) {
-                $output .= $closing_html;
-            }
-        }
-
-        return $output;
-    }
-
-    /**
-     * Extrahiert den Modultitel und bereinigt den verbleibenden Body.
-     *
-     * @param string $chunk Der Textabschnitt des Moduls.
-     * @return array [string $mod_title, string $mod_body]
-     */
-    private function _extract_module_title_and_body(string $chunk): array
-    {
-        $chunk = trim($chunk);
-        $chunk = preg_replace('/^[:\s–\-]+/u', '', $chunk);
-
-        $mod_title = '';
-        $mod_body  = $chunk;
-
-        // Der Titel endet bei </strong>, </b>, </span>, </p>, </h[1-6]>, <br> oder \n
-        // Alles Folgende (einschließlich nachfolgender <ul>, <p> etc.) gehört zum Body
-        if (preg_match('/^(.*?)(<\/(?:strong|b|span|em|i|h[1-6]|p)>|<br\s*\/?>|\n)/isu', $chunk, $m)) {
-            $candidate = trim(strip_tags($m[1]));
-            $candidate = preg_replace('/^[:\s–\-]+/u', '', $candidate);
-            if (!empty($candidate) && !preg_match('/^\b(?:Zielgruppe|Ziel|Ziele|Inhalte|Inhalt|Methodik|Didaktik|Voraussetzungen)\b\s*[:\s–\-]/iu', $candidate) && strlen($candidate) < 250) {
-                $mod_title = $candidate;
-                $mod_body  = substr($chunk, strlen($m[0]));
-            }
-        }
-
-        // Verwaiste Schlusstags und führende Trennzeichen entfernen
-        $mod_body = preg_replace('/^(?:\s*(?:<\/(?:strong|b|span|em|i|h[1-6]|p|div)>|<br\s*\/?>)\s*)+/iu', '', $mod_body);
-        $mod_body = preg_replace('/^[:\s–\-]+/u', '', $mod_body);
-
-        return [trim($mod_title), trim($mod_body)];
-    }
-
-    /**
-     * Bereinigt und strukturiert den Modul-Body (Labels, Absätze, Listen).
-     *
-     * @param string $body Der rohe HTML-Body des Moduls.
-     * @return string Das formatierte HTML.
-     */
-    private function _clean_module_body_html(string $body): string
-    {
-        // 1. Redundante Trennlinien entfernen
-        $body = preg_replace('/<hr[^>]*>/iu', '', $body);
-
-        // 2. Standard-Labels (Ziel:, Inhalte: etc.) hervorheben
-        // Nur matchen, wenn zwingend ein Doppelpunkt oder Gedankenstrich folgt (z.B. "Inhalte:", "Ziele:"),
-        // damit Wörter im Fließtext wie "Inhalte, die verkaufen" oder "gesetzter Ziele" unberührt bleiben!
-        $labels_regex = '/(?:<(?:p|div|h[4-6])[^>]*>\s*)?(?:<(?:strong|b|span)[^>]*>\s*)?\b(Zielgruppe|Ziele|Ziel|Inhalte|Inhalt|Methodik|Didaktik|Voraussetzungen)\b(?:\s*<\/(?:strong|b|span)>)*\s*[:–\-]\s*(?:<\/(?:p|div|h[4-6])>)?/iu';
-        $body = preg_replace_callback($labels_regex, function($m) {
-            $lbl = ucfirst(strtolower($m[1]));
-            if ($lbl === 'Inhalt') $lbl = 'Inhalte';
-            return "\n\n<p><strong class=\"modul-label\">" . $lbl . ":</strong></p>\n";
-        }, $body);
-
-        // 3. Listen bereinigen
-        $body = preg_replace('/<li[^>]*>\s*<\/li>/iu', '', $body);
-        $body = preg_replace('/<li[^>]*>\s*<p[^>]*>(.*?)<\/p>\s*<\/li>/isu', '<li>$1</li>', $body);
-        $body = preg_replace('/<ul[^>]*>/iu', '<ul class="modul-list">', $body);
-
-        // Vor <ul> und nach </ul> Doppelzeilenumbrüche erzwingen, damit Listen nicht in <p> eingeschlossen werden
-        $body = preg_replace('/(?<!\n)\s*(<ul\b|<ol\b)/iu', "\n\n$1", $body);
-        $body = preg_replace('/(<\/ul>|<\/ol>)\s*(?!\n)/iu', "$1\n\n", $body);
-
-        // Newlines innerhalb von <ul> und <ol> normalisieren (keine \n\n innerhalb von Listen)
-        $body = preg_replace_callback('/<(ul|ol)[^>]*>.*?<\/\1>/isu', function($matches) {
-            return preg_replace('/\n{2,}/', "\n", $matches[0]);
-        }, $body);
-
-        // 4. Absätze sauber formatieren
-        $paragraphs = preg_split('/\n{2,}/', $body);
-        $clean_paras = [];
-        foreach ($paragraphs as $p) {
-            $p = trim($p);
-            if (empty($p)) continue;
-            if (preg_match('/^<(?:p|ul|ol|table|div|h[1-6]|blockquote)/i', $p)) {
-                $clean_paras[] = $p;
-            } elseif (preg_match('/^<li/i', $p)) {
-                // Falls verwaiste li-Tags existieren, in saubere ul einbetten
-                $clean_paras[] = '<ul class="modul-list">' . $p . '</ul>';
-            } else {
-                $clean_paras[] = '<p class="modul-text">' . $p . '</p>';
-            }
-        }
-        $body = implode("\n", $clean_paras);
-
-        // 5. Leere und doppelt geschachtelte Absätze bereinigen
-        $body = preg_replace('/<p[^>]*>\s*<\/p>/iu', '', $body);
-        $body = preg_replace('/<p class="modul-text">\s*(<p>.*?<\/p>)\s*<\/p>/isu', '$1', $body);
-
-        return $body;
-    }
-
-    /**
-     * Bereinigt generische Abschnitte (z. B. Intro ohne Module).
-     *
-     * @param string $html Der rohe HTML-Inhalt.
-     * @return string Das bereinigte HTML.
-     */
-    private function _clean_generic_section_html(string $html): string
-    {
-        return $this->_clean_module_body_html($html);
-    }
-
-    /**
-     * Bereinigt die Lehrgangsabschluss-Sektion.
-     *
-     * @param string $html Der rohe HTML-Inhalt des Abschlusses.
-     * @return string Das formatierte HTML.
-     */
-    private function _clean_closing_section_html(string $html): string
-    {
-        $html = trim($html);
-        $html = preg_replace('/^(?:\s*<hr[^>]*>\s*)+/iu', '', $html);
-        return '<div class="modul-abschluss">' .
-               '<h3 class="abschluss-heading">Lehrgangsabschluss &amp; Zertifizierung</h3>' .
-               $this->_clean_module_body_html($html) .
-               '</div>';
+        return CRM_Pdf_Presenter::_format_content_modules($content);
     }
 
     /**
@@ -1405,41 +1056,7 @@ class CRM_Model
 
     private function get_trainer_html(): string
     {
-        $post_id = $this->post_id;
-        if (!$post_id) {
-            return '';
-        }
-        $vt_meta = get_post_meta($post_id, 'vortragende', true);
-        if (empty($vt_meta) || !is_array($vt_meta)) {
-            return '';
-        }
-        $query = new WP_Query([
-            'post__in' => $vt_meta,
-            'post_type' => 'members',
-            'posts_per_page' => -1,
-            'orderby' => 'post__in',
-        ]);
-        if (!$query->have_posts()) {
-            return '';
-        }
-        $html = '';
-        $count = 0;
-        while ($query->have_posts()) {
-            $query->the_post();
-            if ($count > 0) {
-                $html .= '<span style="margin-left: -4px;">, </span>';
-            }
-            $html .= sprintf(
-                '<a href="%s" title="%s">%s</a>',
-                esc_url(get_permalink()),
-                esc_attr(get_the_title()),
-                esc_html(get_the_title())
-            );
-            $count++;
-        }
-        $html .= '';
-        wp_reset_postdata();
-        return $html;
+        return CRM_Pdf_Presenter::render_trainer($this->post_id);
     }
 
     private function get_coursetype(): string
@@ -1474,283 +1091,43 @@ class CRM_Model
 
     private function get_garantie_html(): string
     {
-        return '<table class="text">
-                    <tr>
-                        <td>' . $this->get_crm_field('Anhang 2 | Exklusive Zusatzleistungen') . '</td>
-                    </tr>
-                </table>';
+        return CRM_Pdf_Presenter::render_garantie((string)$this->get_crm_field('Anhang 2 | Exklusive Zusatzleistungen'));
     }
 
     private function get_zertifizierungen_loop_html(): string
     {
-        $html = '<table>';
-        $html .= '<tr><td>' . esc_html(get_post_meta($this->post_id, 'zertifizierung-zusatztext', true)) . '</td></tr>';
-        $html .= '<tr>';
-        $html .= '<th style="text-align:left"></th>';
-        $html .= '<th style="text-align:right"></th>';
-        $html .= '</tr>';
-        if (have_rows('zertifizierungen', $this->post_id)) {
-            while (have_rows('zertifizierungen', $this->post_id)) : the_row();
-                $preis = (float)get_sub_field('preis');
-                $ust_satz = (float)get_sub_field('Ust_satz');
-                $ust = ($preis / (100 + $ust_satz)) * $ust_satz;
-                $zert_preis_netto = $preis - $ust;
-                $zert_preis_brutto = $zert_preis_netto + $ust;
-                $html .= '<tr>';
-                $html .= '<td style="width: 70%">' . esc_html(get_sub_field('name-zert')) . '</td>';
-                $html .= '<td style="width: 30%; text-align:right">' . number_format($zert_preis_netto, 2, ',', '.') . ' €</td>';
-                $html .= '</tr><tr>';
-                $html .= '<td>+ ' . esc_html($ust_satz) . '% (von ' . number_format($zert_preis_netto, 2, ',', '.') . ' €) </td>';
-                $html .= '<td style="text-align:right">' . number_format($ust, 2, ',', '.') . '€ </td>';
-                $html .= '</tr><tr><td colspan="2" style="border-top: 1px solid #cbd5e1; height: 1px; font-size: 1pt;">&nbsp;</td></tr><tr>';
-                $html .= '<td><strong>Gesamt Brutto</strong> </td><td style="text-align:right"><strong>' . number_format($zert_preis_brutto, 2, ',', '.') . ' €</strong> </td></tr>';
-            endwhile;
-        }
-        $html .= '</table>';
-        $html .= '<div style="font-size:10pt">&nbsp;</div>';
-        return $html;
+        return CRM_Pdf_Presenter::render_zertifizierungen_loop($this->post_id);
     }
 
     public function get_form_zertifizierungen_loop_html(): string
     {
-        $certifications_data = $this->get_certifications_from_form_field();
-
-        if (empty($certifications_data)) {
-            return '';
-        }
-
-        $total_brutto = 0.00;
-        $total_netto = 0.00;
-
-        $html = '
-    <div style="font-family:dejavusans; font-size:14pt; margin-bottom:6px;">Optionale Zertifizierungen</div>
-    <div style="font-family:dejavusans; font-size:10pt; margin-bottom:8px;">
-        Zu dieser Veranstaltung können wir Ihnen optional folgende Zertifizierungen anbieten:
-    </div>
-    <hr style="border-top:1px solid #aaa; margin-bottom: 5px;">
-    <div style="font-family:dejavusans; font-size:10pt;">
-        <span style="display:inline-block; width:70%;"><strong>Zertifizierung</strong></span>
-        <span style="display:inline-block; width:29%; text-align:right;"><strong>Preis</strong></span>
-    </div>
-    <hr style="border-top:1px solid #aaa; margin-bottom: 8px;">';
-
-        foreach ($certifications_data as $cert) {
-            $name = htmlspecialchars($cert['name']);
-            $price = str_replace(['.', ','], ['', '.'], $cert['price']);
-            $percentage_raw = rtrim($cert['percentage'], '%');
-
-            $ust_satz = ($percentage_raw === 'N/A') ? 20.00 : (float) $percentage_raw;
-            $price = (float) $price;
-
-            $ust = ($price / (100 + $ust_satz)) * $ust_satz;
-            $zert_preis_netto = $price - $ust;
-            $zert_preis_brutto = $zert_preis_netto + $ust;
-
-            $total_brutto += $zert_preis_brutto;
-            $total_netto += $zert_preis_netto;
-
-            $html .= '
-            <div style="font-family:dejavusans; font-size:10pt; margin-bottom: 2px;">
-                <span style="display:inline-block; width:70%;">' . $name . '</span>
-                <span style="display:inline-block; width:29%; text-align:right;">' . number_format($zert_preis_netto, 2, ',', '.') . ' €</span>
-            </div>
-            <div style="font-family:dejavusans; color:#555; font-size:9pt; margin-bottom: 2px;">
-                <span style="display:inline-block; width:70%;">+ ' . number_format($ust_satz, 2, ',', '.') . '% (von ' . number_format($zert_preis_netto, 2, ',', '.') . ' €)</span>
-                <span style="display:inline-block; width:29%; text-align:right;">' . number_format($ust, 2, ',', '.') . ' €</span>
-            </div>
-            <hr style="border-top:0.5pt dashed #ccc; margin-top: 2px; margin-bottom: 2px;">
-        ';
-        }
-
-        // Totals
-        $html .= '
-    <div style="font-family:dejavusans; font-size:10pt; margin-top: 8px;">
-        <span style="display:inline-block; width:70%;">Gesamt Netto</span>
-        <span style="display:inline-block; width:29%; text-align:right;">' . number_format($total_netto, 2, ',', '.') . ' €</span>
-    </div>
-    <div style="font-family:dejavusans; font-size:10pt; background-color:#f9f9f9; padding:2px 0;">
-        <span style="display:inline-block; width:70%;"><strong>Gesamt Brutto</strong></span>
-        <span style="display:inline-block; width:29%; text-align:right;"><strong>' . number_format($total_brutto, 2, ',', '.') . ' €</strong></span>
-    </div>
-    ';
-
-        return $html;
+        return CRM_Pdf_Presenter::render_form_zertifizierungen_loop($this->get_certifications_from_form_field());
     }
 
     public function get_gesamt_kosten_html(): string
     {
-        $netto_kurs = (float) $this->preis_netto;
-        $brutto_kurs = (float) $this->preis_brutto;
-        $ust_satz = 20.00;
-        $ust_kurs = ($netto_kurs / 100) * $ust_satz;
-
-        $certifications_data = $this->get_certifications_from_form_field();
-
-        $total_netto = $netto_kurs;
-        $total_ust = $ust_kurs;
-        $total_brutto = $brutto_kurs;
-
-        $html = '
-    <table cellpadding="6" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size:10pt;">
-        <thead>
-            <tr style="background-color:#f2f2f2;">
-                <th style="text-align:left; width:70%; border-bottom:1px solid #aaa;">Beschreibung</th>
-                <th style="text-align:right; width:30%; border-bottom:1px solid #aaa;">Preis</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td style="width:70%;">Kursgebühr
-                    <span style="color:#555; font-size:9pt;">
-                        ' . $this->anzahl_le . ' Lehreinheiten (' . number_format($this->le_single, 2, ',', '.') . ' €/LE, 1 LE = 45min)
-                    </span>
-                </td>
-                <td style="width:30%; text-align:right;">' . number_format($netto_kurs, 2, ',', '.') . ' €</td>
-            </tr>
-            <tr style="color:#555; font-size:9pt;">
-                <td>+ ' . number_format($ust_satz, 2, ',', '.') . '% MwSt. (von ' . number_format($netto_kurs, 2, ',', '.') . ' €)</td>
-                <td style="text-align:right;">' . number_format($ust_kurs, 2, ',', '.') . ' €</td>
-            </tr>
-            <tr><td colspan="2" style="border-bottom:0.5pt dashed #ccc;"></td></tr>';
-
-        // Zertifizierungen hinzufügen
-        if (!empty($certifications_data)) {
-            foreach ($certifications_data as $cert) {
-                $name = htmlspecialchars($cert['name']);
-                $price = str_replace(['.', ','], ['', '.'], $cert['price']);
-                $percentage_raw = rtrim($cert['percentage'], '%');
-
-                $ust_satz_cert = ($percentage_raw === 'N/A') ? 20.00 : (float) $percentage_raw;
-                $price = (float) $price;
-
-                $ust_cert = ($price / (100 + $ust_satz_cert)) * $ust_satz_cert;
-                $netto_cert = $price - $ust_cert;
-                $brutto_cert = $netto_cert + $ust_cert;
-
-                // Summen erhöhen
-                $total_netto += $netto_cert;
-                $total_ust += $ust_cert;
-                $total_brutto += $brutto_cert;
-
-                $html .= '
-            <tr>
-                <td style="width:70%;">' . $name . '</td>
-                <td style="width:30%; text-align:right;">' . number_format($netto_cert, 2, ',', '.') . ' €</td>
-            </tr>
-            <tr style="color:#555; font-size:9pt;">
-                <td>+ ' . number_format($ust_satz_cert, 2, ',', '.') . '% MwSt. (von ' . number_format($netto_cert, 2, ',', '.') . ' €)</td>
-                <td style="text-align:right;">' . number_format($ust_cert, 2, ',', '.') . ' €</td>
-            </tr>
-            <tr><td colspan="2" style="border-bottom:0.5pt dashed #ccc;"></td></tr>';
-            }
-        }
-
-        // Gesamtsummen
-        $html .= '
-            <tr style="color:#555; font-size:9pt;">
-                <td><strong>Gesamt Netto</strong></td>
-                <td style="text-align:right;"><strong>' . number_format($total_netto, 2, ',', '.') . ' €</strong></td>
-            </tr>
-            <tr style="color:#555; font-size:9pt;">
-                <td><strong>Gesamt MwSt.</strong></td>
-                <td style="text-align:right;">' . number_format($total_ust, 2, ',', '.') . ' €</td>
-            </tr>
-            <tr>
-                <td colspan="2" style="border-bottom:0.5pt dashed #ccc;">
-            </td>
-            </tr>
-            <tr style="background-color:#f9f9f9;">
-                <td><strong>Gesamt Brutto</strong></td>
-                <td style="text-align:right;"><strong>' . number_format($total_brutto, 2, ',', '.') . ' €</strong></td>
-            </tr>
-        </tbody>
-    </table>';
-
-        return $html;
+        return CRM_Pdf_Presenter::render_gesamt_kosten($this);
     }
-
 
     /**
      * Generates an HTML unordered list from an array of prerequisites.
-     * @param array|null $voraussetzungen_list An array of strings, each being a prerequisite.
+     * Delegiert an CRM_Pdf_Presenter.
+     *
      * @return string The generated HTML list, or an empty string if no prerequisites are provided.
      */
     private function get_voraussetzungen_list_html(): string
     {
-        $voraussetzungen_list = $this->voraussetzungen;
-
-        if (empty($voraussetzungen_list)) {
-            return '';
-        }
-
-        $html = '<ul>';
-
-        // Repeater: Array von Arrays (mit Key "requirements")
-        if (is_array($voraussetzungen_list) && isset($voraussetzungen_list[0]) && is_array($voraussetzungen_list[0])) {
-            foreach ($voraussetzungen_list as $row) {
-                if (isset($row['requirements']) && !empty(trim($row['requirements']))) {
-                    $html .= '<li>' . esc_html(trim($row['requirements'])) . '</li>';
-                }
-            }
-        }
-        // Checkbox/Select: Array von Strings
-        elseif (is_array($voraussetzungen_list)) {
-            foreach ($voraussetzungen_list as $item) {
-                if (is_string($item) && !empty(trim($item))) {
-                    $html .= '<li>' . esc_html(trim($item)) . '</li>';
-                }
-            }
-        }
-        // Textfeld: Einfacher String mit evtl. Zeilenumbrüchen
-        elseif (is_string($voraussetzungen_list)) {
-            $lines = preg_split('/\r\n|\r|\n/', $voraussetzungen_list);
-            foreach ($lines as $line) {
-                if (!empty(trim($line))) {
-                    $html .= '<li>' . esc_html(trim($line)) . '</li>';
-                }
-            }
-        }
-
-        $html .= '</ul>';
-
-        return $html;
+        return CRM_Pdf_Presenter::render_voraussetzungen_list($this->voraussetzungen);
     }
 
     public function get_contact_info_html(): string
     {
-        $html = '<table class="text" style="padding-bottom: 30pt;">';
-        $html .= '    <tr style="padding-bottom: 10pt;">';
-        $html .= '        <td style="width:7%;">' . $this->web_icon . '<div style="font-size:5pt">&nbsp;</div> </td>';
-        $html .= '        <td style="width:43%;"><div style="font-size:2pt">&nbsp;</div> <a href="http://x-sieben.at/kontakt">www.x-sieben.at/kontakt</a></td>';
-        $html .= '        <td style="width:7%;">' . $this->fax_icon . '<div style="font-size:5pt">&nbsp;</div> </td>';
-        $html .= '        <td style="width:43%;"><div style="font-size:2pt">&nbsp;</div> Fax: (+43) 2622 / 351 10 14</td>';
-        $html .= '    </tr>';
-        $html .= '    <tr>';
-        $html .= '        <td style="width:7%;">' . $this->mail_icon . '<div style="font-size:5pt">&nbsp;</div> </td>';
-        $html .= '        <td style="width:43%;"><div style="font-size:2pt">&nbsp;</div><a href="mailto:office@x-sieben.at">office@x-sieben.at</a></td>';
-        $html .= '        <td style="width:7%;">' . $this->phone_icon . '<div style="font-size:5pt">&nbsp;</div> </td>';
-        $html .= '        <td style="width:43%;"><div style="font-size:2pt">&nbsp;</div> Rückfragen: <a href="tel: 0043800700170">(+43) 800 700 170</a></td>';
-        $html .= '    </tr>';
-        $html .= '</table>';
-
-        return $html;
+        return CRM_Pdf_Presenter::render_contact_info($this);
     }
+
     private function get_ps_html(): string
     {
-        $ps_custom = $this->get_crm_field('Angebot PS');
-        if (!empty(trim(strip_tags($ps_custom)))) {
-            return '<table style="font-size:10pt;"><tr><td style="margin:0; padding:0;">' . $ps_custom . '</td></tr></table>';
-        }
-        return '<table style="font-size:10pt;">
-                    <tr>
-                        <td style="margin:0; padding:0;">PS: Die <strong>Bewertungen unserer Kursteilnehmer</strong> finden Sie auf der externen Bewertungsplattform <a href="https://www.x-sieben.at/provenexpert.com/x-sieben-wirtschaftstraining/?utm_source=Widget&utm_medium=Widget&utm_campaign=Widget">ProvenExpert</a>! <br>
-                        </td>
-                        </tr>
-                        <tr>
-                        <td style="margin:0; padding:0;">PPS: <strong>Keine Förderung?</strong> Dennoch <strong>jetzt weiterbilden</strong> und bis in zu <strong>24 Monatsraten</strong> bezahlen. Mit <a href="https://www.x-sieben.at/jetzt-weiterbilden-bezahlen-in-bis-zu-24-raten-mit-klarna/">Klarna</a>.
-                        </td>
-                    </tr>
-                </table>';
+        return CRM_Pdf_Presenter::render_ps((string)$this->get_crm_field('Angebot PS'));
     }
 
     private function _setExpireDate()
@@ -1766,52 +1143,14 @@ class CRM_Model
 
     public function get_kursgebuehr_html(): string
     {
-
-
-        $netto = (float) $this->preis_netto;
-        $brutto = (float) $this->preis_brutto;
-        $ust_satz = 20.00;
-        $ust = ($netto / 100) * $ust_satz;
-
-        $html = '
-    
-    <table cellpadding="6" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size:10pt;">
-        <thead>
-            <tr style="background-color:#f2f2f2;">
-                <th style="text-align:left; width:70%; border-bottom:1px solid #aaa;">Beschreibung</th>
-                <th style="text-align:right; width:30%; border-bottom:1px solid #aaa;">Preis</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td style="width:70%;">Kursgebühr
-                    <span style="color:#555; font-size:9pt;">
-                        ' . $this->anzahl_le . ' Lehreinheiten (' . number_format($this->le_single, 2, ',', '.') . ' €/LE, 1 LE = 45min)
-                    </span>
-                </td>
-                <td style="width:30%; text-align:right;">' . number_format($netto, 2, ',', '.') . ' €</td>
-            </tr>
-            <tr style="color:#555; font-size:9pt;">
-                <td>+ ' . number_format($ust_satz, 2, ',', '.') . '% MwSt. (von ' . number_format($netto, 2, ',', '.') . ' €)</td>
-                <td style="text-align:right;">' . number_format($ust, 2, ',', '.') . ' €</td>
-            </tr>
-            <tr><td colspan="2" style="border-bottom:0.5pt dashed #ccc;"></td></tr>
-            <tr style="background-color:#f9f9f9;">
-                <td><strong>Gesamt Brutto</strong></td>
-                <td style="text-align:right;"><strong>' . number_format($brutto, 2, ',', '.') . ' €</strong></td>
-            </tr>
-        </tbody>
-    </table>
-    ';
-
-        return $html;
+        return CRM_Pdf_Presenter::render_kursgebuehr($this);
     }
 
     private function get_signature_html(): string
     {
-        return '<div>' . $this->signatur_icon . '<br>
-    <span style="font-size: 10pt;">Mag. Dr. Johannes Gasberger<br></span>
-    <span style="font-size: 9pt; color: #475569;">Geschäftsführer | X SIEBEN Wirtschaftstraining GmbH</span></div>';
+        $name  = !empty($this->company_management) ? $this->company_management : 'Mag. Dr. Johannes Gasberger';
+        $title = 'Geschäftsführer | ' . (!empty($this->company_name) ? $this->company_name : 'X SIEBEN Wirtschaftstraining GmbH');
+        return CRM_Pdf_Presenter::render_signature($this->signatur_icon, $name, $title);
     }
 
     public function get_diplom_success(): ?string
@@ -1860,27 +1199,15 @@ class CRM_Model
     }
 
     /**
-     * Generates a formatted HTML title block 
-     * 
-     * This method creates a table with a stylized title for use in PDF 
+     * Generates a formatted HTML title block.
+     * Delegiert an CRM_Pdf_Presenter zur Gewährleistung von Separation of Concerns (SoC).
      *
-     * @param string $prefix  (e.g., 'Anhang 1').
      * @param string $title The title (e.g., 'Exklusive Zusatzleistungen').
+     * @param string|null $prefix  (e.g., 'Anhang 1').
      * @return string The HTML table string for the appendix title.
      */
     public function get_pdf_title(string $title, ?string $prefix = null): string
     {
-        // Conditionally create the prefix HTML part only if $prefix is not null or empty.
-        $prefix_html = !empty($prefix) ? '<strong>' . esc_html($prefix) . '</strong> - ' : '';
-
-        return '
-        <table class="title" style="width: 100%;">
-            <tr>
-                <td style="font-size: 14pt; padding-bottom: 5px;">
-                    ' . $prefix_html . '<span style="font-size: 12pt;">' . esc_html($title) . '</span>
-                </td>
-            </tr>
-        </table>
-    ';
+        return CRM_Pdf_Presenter::render_pdf_title($title, $prefix);
     }
 }

@@ -248,23 +248,11 @@ function crm_get_pdf_sections_definitions($doc_type = null): array
                         'default'         => true,
                         'default_content' => "{standard}",
                     ],
-                    'zertifizierungen' => [
-                        'title'           => __('Zertifizierungspartner & Badges', 'custom-crm'),
-                        'desc'            => __('Offizielle Zertifizierungs-Logos und Partner-Badges.', 'custom-crm'),
-                        'default'         => true,
-                        'default_content' => "{standard}",
-                    ],
-                    'ort_durchfuehrung' => [
-                        'title'           => __('Schulungsort & Durchführungsmodus', 'custom-crm'),
-                        'desc'            => __('Wiener Adresse, Online-Unterricht und Durchführungsgarantie.', 'custom-crm'),
-                        'default'         => true,
-                        'default_content' => "ORT: X SIEBEN Wirtschaftstraining, Rochusgasse 6 in 1030 Wien\nDurchführung unserer Schulungen: Online Unterricht | vor Ort in unseren Veranstaltungsräumen | Blended Learning",
-                    ],
                 ],
             ],
             'abschluss' => [
                 'title'          => __('Ihr persönlicher Abschluss', 'custom-crm'),
-                'desc'           => __('Abschlussbezeichnung, Zertifikat, Teilnahmevoraussetzungen und Fachberatungs-Kontakt.', 'custom-crm'),
+                'desc'           => __('Abschlussbezeichnung, Zertifikat, Teilnahmevoraussetzungen, Zertifizierungspartner, Durchführungsort und Fachberatung.', 'custom-crm'),
                 'badge'          => __('Seite 3', 'custom-crm'),
                 'icon'           => 'dashicons-awards',
                 'color'          => '#d97706',
@@ -294,6 +282,18 @@ function crm_get_pdf_sections_definitions($doc_type = null): array
                         'desc'            => __('Fachliche und organisatorische Voraussetzungen.', 'custom-crm'),
                         'default'         => true,
                         'default_content' => "{standard}",
+                    ],
+                    'zertifizierungen' => [
+                        'title'           => __('Zertifizierungspartner & Badges', 'custom-crm'),
+                        'desc'            => __('Offizielle Zertifizierungs-Logos und Partner-Badges.', 'custom-crm'),
+                        'default'         => true,
+                        'default_content' => "{standard}",
+                    ],
+                    'ort_durchfuehrung' => [
+                        'title'           => __('Schulungsort & Durchführungsmodus', 'custom-crm'),
+                        'desc'            => __('Wiener Adresse, Online-Unterricht und Durchführungsgarantie.', 'custom-crm'),
+                        'default'         => true,
+                        'default_content' => "ORT: X SIEBEN Wirtschaftstraining, Rochusgasse 6 in 1030 Wien\nDurchführung unserer Schulungen: Online Unterricht | vor Ort in unseren Veranstaltungsräumen | Blended Learning",
                     ],
                     'beratung' => [
                         'title'           => __('Fachberatung & Kontaktbox', 'custom-crm'),
@@ -1121,6 +1121,9 @@ function crm_is_legacy_default_pdf_content(string $sec_key, string $sub_key, str
             'titel' => [
                 'Ihr persönlicher Abschluss: {kurstitel_short}',
             ],
+            'ort_durchfuehrung' => [
+                'ORT: X SIEBEN Wirtschaftstraining, Rochusgasse 6 in 1030 Wien Durchführung unserer Schulungen: Online Unterricht | vor Ort in unseren Veranstaltungsräumen | Blended Learning',
+            ],
             'beratung' => [
                 'Fachberatung & Kontakt: office@x-sieben.at | Tel: 0800 700 170',
             ],
@@ -1204,6 +1207,65 @@ function crm_get_pdf_section_order(string $doc_type, $entry_id = null): array
     if ($saved_order === null) {
         $global_opt_key = 'crm_pdf_section_order_' . $doc_type;
         $saved_order    = get_option($global_opt_key, null);
+    }
+
+    // Auto-Migration für Angebot: zertifizierungen & ort_durchfuehrung von veranstaltung (Seite 2) nach abschluss (Seite 3) verschieben
+    if ($doc_type === 'angebot' && is_array($saved_order)) {
+        $moved_subs = [];
+        $need_migration = false;
+        foreach ($saved_order as &$sec_item) {
+            if (is_array($sec_item) && ($sec_item['key'] ?? '') === 'veranstaltung' && !empty($sec_item['subsections'])) {
+                $new_v_subs = [];
+                foreach ($sec_item['subsections'] as $sub) {
+                    $s_k = $sub['key'] ?? '';
+                    if ($s_k === 'zertifizierungen' || $s_k === 'ort_durchfuehrung') {
+                        $moved_subs[$s_k] = $sub;
+                        $need_migration = true;
+                    } else {
+                        $new_v_subs[] = $sub;
+                    }
+                }
+                $sec_item['subsections'] = $new_v_subs;
+            }
+        }
+        unset($sec_item);
+
+        if (!empty($moved_subs)) {
+            foreach ($saved_order as &$sec_item) {
+                if (is_array($sec_item) && ($sec_item['key'] ?? '') === 'abschluss' && isset($sec_item['subsections'])) {
+                    $existing_keys = array_column($sec_item['subsections'], 'key');
+                    $new_a_subs = [];
+                    foreach ($sec_item['subsections'] as $sub) {
+                        $s_k = $sub['key'] ?? '';
+                        if ($s_k === 'beratung') {
+                            if (!in_array('zertifizierungen', $existing_keys, true) && isset($moved_subs['zertifizierungen'])) {
+                                $new_a_subs[] = $moved_subs['zertifizierungen'];
+                            }
+                            if (!in_array('ort_durchfuehrung', $existing_keys, true) && isset($moved_subs['ort_durchfuehrung'])) {
+                                $new_a_subs[] = $moved_subs['ort_durchfuehrung'];
+                            }
+                        }
+                        $new_a_subs[] = $sub;
+                    }
+                    if (!in_array('zertifizierungen', array_column($new_a_subs, 'key'), true) && isset($moved_subs['zertifizierungen'])) {
+                        $new_a_subs[] = $moved_subs['zertifizierungen'];
+                    }
+                    if (!in_array('ort_durchfuehrung', array_column($new_a_subs, 'key'), true) && isset($moved_subs['ort_durchfuehrung'])) {
+                        $new_a_subs[] = $moved_subs['ort_durchfuehrung'];
+                    }
+                    $sec_item['subsections'] = $new_a_subs;
+                }
+            }
+            unset($sec_item);
+        }
+
+        if ($need_migration) {
+            if (!empty($entry_id) && isset($entry_opt_key)) {
+                update_option($entry_opt_key, $saved_order);
+            } elseif (isset($global_opt_key)) {
+                update_option($global_opt_key, $saved_order);
+            }
+        }
     }
 
     $result    = [];
@@ -1842,10 +1904,10 @@ function crm_render_pdf_sections_manager(string $doc_type = 'angebot', $entry_id
 
                         <!-- Header & Footer Toggle Pill -->
                         <?php $hf_summary = crm_get_pdf_hf_summary_label($sec); ?>
-                        <button type="button" class="button-link crm-toggle-hf-btn" title="<?php esc_attr_e('Kopf- & Fußzeile für diese Seite anpassen', 'custom-crm'); ?>" style="font-size:10px; font-weight:600; padding:2px 7px; border-radius:12px; background:#f5f3ff; color:#6d28d9; border:1px solid #ddd6fe; display:inline-flex; align-items:center; gap:3px; text-decoration:none; cursor:pointer; user-select:none; white-space:nowrap;" onclick="event.stopPropagation();">
+                        <button type="button" class="button-link crm-toggle-hf-btn" title="<?php esc_attr_e('Kopf- & Fußzeile für diese Seite anpassen', 'custom-crm'); ?>" style="font-size:10px; font-weight:600; padding:2px 7px; border-radius:12px; background:#f5f3ff; color:#6d28d9; border:1px solid #ddd6fe; display:inline-flex; align-items:center; gap:3px; text-decoration:none; cursor:pointer; user-select:none; white-space:nowrap;" onclick="event.preventDefault(); event.stopPropagation(); jQuery(this).closest('.crm-pdf-section-item').find('> .crm-hf-drawer').slideToggle(180);">
                             <span class="dashicons dashicons-editor-kitchensink" style="font-size:12px; width:12px; height:12px; line-height:12px;"></span>
                             <span class="crm-hf-summary-text"><?php echo esc_html($hf_summary); ?></span>
-                            &#x25BE;
+                            <span class="crm-hf-chevron">&#x25BE;</span>
                         </button>
 
                         <!-- Subsections Counter Pill -->
@@ -2071,7 +2133,10 @@ function crm_render_pdf_sections_manager(string $doc_type = 'angebot', $entry_id
                                                     </span>
                                                 <?php endif; ?>
                                             </div>
-                                            <textarea class="crm-sub-input-content" rows="4" style="width:100%; font-size:11.5px; font-family:monospace; line-height:1.4;" placeholder="<?php esc_attr_e('Freitext oder HTML für diesen Unterabschnitt eingeben (leer lassen für Standard-Layout)...', 'custom-crm'); ?>"><?php echo esc_textarea(!empty($sub['content']) ? $sub['content'] : ''); ?></textarea>
+                                            <?php
+                                            $sub_content_display = !empty($sub['content']) ? $sub['content'] : (!empty($sub['default_content']) ? $sub['default_content'] : '');
+                                            ?>
+                                            <textarea class="crm-sub-input-content" rows="4" style="width:100%; font-size:11.5px; font-family:monospace; line-height:1.4;" placeholder="<?php esc_attr_e('Standardinhalt bearbeiten oder eigenen Text eingeben...', 'custom-crm'); ?>"><?php echo esc_textarea($sub_content_display); ?></textarea>
                                         </div>
 
                                         <!-- Placeholder Chips -->

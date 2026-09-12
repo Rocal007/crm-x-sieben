@@ -1,6 +1,6 @@
 # X-SIEBEN CRM & Kurs-Management-Modul
 
-[![Version](https://img.shields.io/badge/version-2.11.7-blue.svg)](crm-admin.php)
+[![Version](https://img.shields.io/badge/version-2.18.12-blue.svg)](crm-admin.php)
 [![PHP](https://img.shields.io/badge/PHP-%3E%3D%208.0-777bb4.svg)](https://www.php.net/)
 [![WordPress](https://img.shields.io/badge/WordPress-Theme%20Module-21759b.svg)](https://wordpress.org/)
 [![Compliance](https://img.shields.io/badge/Standard-LINGUA--LOCA%20AT-success.svg)](AGENT.md)

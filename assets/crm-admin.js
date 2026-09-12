@@ -1,6 +1,6 @@
 // crm-admin.js
 // =============================================================================
-// NEXUS CRM JS CACHE OPERATOR — C(X) Idempotent State Operator | V2.18.3
+// NEXUS CRM JS CACHE OPERATOR — C(X) Idempotent State Operator | V2.18.12
 // High-performance client-side cache & automatic cleaner for partial updates
 // =============================================================================
 (function (window) {
@@ -494,20 +494,225 @@ document.addEventListener("DOMContentLoaded", function () {
                 });
         });
 
-        // Close modal on backdrop click or Escape
+        // --- CRM Modals Close Handlers ---
         const modalBackdrop = document.getElementById('crm-history-modal-backdrop');
+        const snapshotsBackdrop = document.getElementById('crm-snapshots-modal-backdrop');
+        const snapshotsContent = document.getElementById('crm-snapshots-modal-content');
+        const snapshotDetailBackdrop = document.getElementById('crm-snapshot-detail-modal-backdrop');
+        const snapshotDetailTitle = document.getElementById('crm-snapshot-detail-title');
+        const snapshotDetailBody = document.getElementById('crm-snapshot-detail-body');
+
         if (modalBackdrop) {
             modalBackdrop.addEventListener('click', function (e) {
                 if (e.target === modalBackdrop) {
                     modalBackdrop.style.display = 'none';
                 }
             });
-            document.addEventListener('keydown', function (e) {
-                if (e.key === 'Escape' && modalBackdrop.style.display === 'flex') {
-                    modalBackdrop.style.display = 'none';
+        }
+
+        // --- Document Snapshots Archive Modal Logic ---
+        function escapeHtmlHelper(str) {
+            if (typeof str !== 'string') return str;
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function renderJsonSnapshotHtml(data) {
+            if (!data || typeof data !== 'object') {
+                return '<p style="color:#64748b; padding:12px;">Keine Daten vorhanden.</p>';
+            }
+
+            const labels = {
+                'doc_type': 'Dokumenttyp',
+                'client_name': 'Kunde Name',
+                'client_company': 'Unternehmen',
+                'client_email': 'E-Mail',
+                'client_phone': 'Telefon',
+                'client_address': 'Adresse',
+                'client_sv_nr': 'SV-Nummer',
+                'course_title': 'Kurstitel',
+                'course_type': 'Kursart',
+                'start_date': 'Startdatum',
+                'end_date': 'Enddatum',
+                'course_times': 'Kurszeiten',
+                'duration': 'Dauer',
+                'ue_units': 'Unterrichtseinheiten (UE)',
+                'location': 'Kursort',
+                'trainer': 'Trainer',
+                'price_netto': 'Kursgebühr Netto',
+                'price_brutto': 'Kursgebühr Brutto',
+                'vat_rate': 'USt-Satz',
+                'discount': 'Rabatt / Aktion',
+                'final_price': 'Endbetrag',
+                'created_at': 'Snapshot archiviert am'
+            };
+
+            let rows = '';
+            for (const [key, label] of Object.entries(labels)) {
+                if (data[key] !== undefined && data[key] !== null && String(data[key]).trim() !== '') {
+                    rows += '<tr>' +
+                        '<td style="padding:9px 14px; font-weight:600; color:#334155; width:36%; border-bottom:1px solid #f1f5f9; background:#f8fafc;">' + escapeHtmlHelper(label) + '</td>' +
+                        '<td style="padding:9px 14px; color:#0f172a; border-bottom:1px solid #f1f5f9;">' + escapeHtmlHelper(String(data[key])) + '</td>' +
+                    '</tr>';
+                }
+            }
+
+            for (const [key, val] of Object.entries(data)) {
+                if (!labels[key] && key !== 'raw' && val !== undefined && val !== null && String(val).trim() !== '') {
+                    rows += '<tr>' +
+                        '<td style="padding:9px 14px; font-weight:600; color:#64748b; width:36%; border-bottom:1px solid #f1f5f9; background:#f8fafc;">' + escapeHtmlHelper(key) + '</td>' +
+                        '<td style="padding:9px 14px; color:#0f172a; border-bottom:1px solid #f1f5f9;">' + escapeHtmlHelper(typeof val === 'object' ? JSON.stringify(val) : String(val)) + '</td>' +
+                    '</tr>';
+                }
+            }
+
+            const jsonPretty = JSON.stringify(data, null, 2);
+
+            return '<div style="border:1px solid #e2e8f0; border-radius:8px; overflow:hidden; margin-bottom:16px;">' +
+                '<table style="width:100%; border-collapse:collapse; font-size:13px; text-align:left;">' +
+                    '<tbody>' + rows + '</tbody>' +
+                '</table>' +
+            '</div>' +
+            '<details style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:10px 14px;">' +
+                '<summary style="cursor:pointer; font-weight:600; font-size:12px; color:#475569;">' +
+                    '🔍 Vollständiges Rohdaten-JSON einsehen' +
+                '</summary>' +
+                '<pre style="margin-top:10px; background:#0f172a; color:#f8fafc; padding:14px; border-radius:6px; font-size:11.5px; overflow-x:auto; line-height:1.4;">' + escapeHtmlHelper(jsonPretty) + '</pre>' +
+            '</details>';
+        }
+
+        // Open Snapshots Archive Modal on Click
+        table.addEventListener('click', function (e) {
+            const snapBtn = e.target.closest('.crm-snapshots-btn');
+            if (!snapBtn) return;
+
+            const entryId = snapBtn.dataset.entryId;
+            if (!snapshotsBackdrop || !snapshotsContent) return;
+
+            snapshotsContent.innerHTML = '<p style="text-align:center; padding:20px; color:#64748b;">⏳ Snapshots werden geladen...</p>';
+            snapshotsBackdrop.style.display = 'flex';
+
+            const formData = new FormData();
+            formData.append('action', 'crm_get_entry_snapshots');
+            formData.append('nonce', nonce);
+            formData.append('entry_id', entryId);
+
+            fetch(ajaxUrl, { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success && data.data.html) {
+                        snapshotsContent.innerHTML = data.data.html;
+
+                        // Synchronize badge count with live DB result
+                        if (typeof data.data.count !== 'undefined') {
+                            let badge = snapBtn.querySelector('.crm-snap-count-badge');
+                            if (data.data.count > 0) {
+                                if (!badge) {
+                                    badge = document.createElement('span');
+                                    badge.className = 'crm-snap-count-badge';
+                                    snapBtn.appendChild(badge);
+                                }
+                                badge.textContent = data.data.count;
+                            } else if (badge) {
+                                badge.remove();
+                            }
+                        }
+                    } else {
+                        snapshotsContent.innerHTML = '<p style="color:#d63638; padding:15px;">' + (data.data?.message || 'Snapshots konnten nicht geladen werden.') + '</p>';
+                    }
+                })
+                .catch(err => {
+                    console.error('Snapshots Fetch Error:', err);
+                    snapshotsContent.innerHTML = '<p style="color:#d63638; padding:15px;">Snapshots konnten nicht geladen werden.</p>';
+                });
+        });
+
+        // Click delegates inside Snapshots Modal for E-Mail / Data preview
+        if (snapshotsContent) {
+            snapshotsContent.addEventListener('click', function (e) {
+                // View E-Mail Snapshot
+                const emailBtn = e.target.closest('.crm-btn-view-snapshot-email');
+                if (emailBtn) {
+                    const snapId = emailBtn.dataset.snapshotId;
+                    const emailHolder = document.getElementById('crm-snapshot-email-' + snapId);
+                    if (emailHolder && snapshotDetailBackdrop && snapshotDetailBody) {
+                        const emailHtml = emailHolder.getAttribute('data-email-body') || '';
+                        if (snapshotDetailTitle) {
+                            snapshotDetailTitle.innerHTML = '<span class="dashicons dashicons-email-alt" style="color:#007C90; margin-right:6px;"></span> Revisionssicherer E-Mail-Inhalt (1:1 Snapshot)';
+                        }
+                        const iframe = document.createElement('iframe');
+                        iframe.style.width = '100%';
+                        iframe.style.height = '580px';
+                        iframe.style.border = '1px solid #e2e8f0';
+                        iframe.style.borderRadius = '6px';
+                        iframe.style.background = '#ffffff';
+                        snapshotDetailBody.innerHTML = '';
+                        snapshotDetailBody.appendChild(iframe);
+                        iframe.srcdoc = emailHtml;
+
+                        snapshotDetailBackdrop.style.display = 'flex';
+                    }
+                    return;
+                }
+
+                // View Data Snapshot
+                const dataBtn = e.target.closest('.crm-btn-view-snapshot-data');
+                if (dataBtn) {
+                    const snapId = dataBtn.dataset.snapshotId;
+                    const dataHolder = document.getElementById('crm-snapshot-data-' + snapId);
+                    if (dataHolder && snapshotDetailBackdrop && snapshotDetailBody) {
+                        const jsonStr = dataHolder.getAttribute('data-snapshot-json') || '{}';
+                        let parsed = {};
+                        try {
+                            parsed = JSON.parse(jsonStr);
+                        } catch (err) {
+                            parsed = { raw: jsonStr };
+                        }
+                        if (snapshotDetailTitle) {
+                            snapshotDetailTitle.innerHTML = '<span class="dashicons dashicons-database" style="color:#007C90; margin-right:6px;"></span> Eingefrorene Konditionen & Daten (JSON-Snapshot)';
+                        }
+                        snapshotDetailBody.innerHTML = renderJsonSnapshotHtml(parsed);
+                        snapshotDetailBackdrop.style.display = 'flex';
+                    }
+                    return;
                 }
             });
         }
+
+        // Close Snapshots Modal via Close Button or Backdrop Click
+        if (snapshotsBackdrop) {
+            snapshotsBackdrop.addEventListener('click', function (e) {
+                if (e.target === snapshotsBackdrop || e.target.closest('.crm-close-snapshots-modal')) {
+                    snapshotsBackdrop.style.display = 'none';
+                }
+            });
+        }
+
+        // Close Snapshot Detail Modal via Close Button or Backdrop Click
+        if (snapshotDetailBackdrop) {
+            snapshotDetailBackdrop.addEventListener('click', function (e) {
+                if (e.target === snapshotDetailBackdrop || e.target.closest('.crm-close-snapshot-detail')) {
+                    snapshotDetailBackdrop.style.display = 'none';
+                }
+            });
+        }
+
+        // Unified Escape Key Handler (hierarchical closing)
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                if (snapshotDetailBackdrop && snapshotDetailBackdrop.style.display === 'flex') {
+                    snapshotDetailBackdrop.style.display = 'none';
+                    e.stopPropagation();
+                } else if (snapshotsBackdrop && snapshotsBackdrop.style.display === 'flex') {
+                    snapshotsBackdrop.style.display = 'none';
+                    e.stopPropagation();
+                } else if (modalBackdrop && modalBackdrop.style.display === 'flex') {
+                    modalBackdrop.style.display = 'none';
+                    e.stopPropagation();
+                }
+            }
+        });
 
     }
 
@@ -727,6 +932,27 @@ jQuery(document).ready(function ($) {
                                 if (actionsCell) {
                                     actionsCell.innerHTML = response.data.actions_html;
                                 }
+                            }
+                        }
+                    }
+
+                    // Real-time update for snapshot count badge
+                    const snapEntryId = (typeof response.data === 'object' && response.data.entry_id) ? response.data.entry_id : entry_id;
+                    if (snapEntryId) {
+                        const targetRowSnap = document.querySelector('tr.crm-entry-row[data-entry-id="' + snapEntryId + '"]');
+                        if (targetRowSnap) {
+                            const snapBtn = targetRowSnap.querySelector('.crm-snapshots-btn');
+                            if (snapBtn) {
+                                let badge = snapBtn.querySelector('.crm-snap-count-badge');
+                                let currentCount = badge ? (parseInt(badge.textContent.trim(), 10) || 0) : 0;
+                                currentCount++;
+                                if (!badge) {
+                                    badge = document.createElement('span');
+                                    badge.className = 'crm-snap-count-badge';
+                                    snapBtn.appendChild(badge);
+                                }
+                                badge.textContent = currentCount;
+                                snapBtn.title = 'Dokument- & Daten-Archiv (' + currentCount + ' Snapshots)';
                             }
                         }
                     }
@@ -1250,16 +1476,19 @@ jQuery(document).ready(function ($) {
                     subContent = $sub.attr('data-content') || '';
                 }
 
-                // If user edited in drawer without clicking 'Übernehmen'
+                // Drawer-Werte übernehmen (auch wenn Drawer vor dem Speichern wieder geschlossen wurde)
                 const $drawer = $sub.find('> .crm-sub-edit-drawer');
-                if ($drawer.length && $drawer.is(':visible')) {
+                if ($drawer.length) {
                     const $inputTitle = $drawer.find('.crm-sub-input-title');
                     const $inputContent = $drawer.find('.crm-sub-input-content');
                     if ($inputTitle.length && $inputTitle.val().trim()) {
                         subTitle = $inputTitle.val().trim();
                     }
                     if ($inputContent.length) {
-                        subContent = $inputContent.val();
+                        const currentVal = $inputContent.val();
+                        if (currentVal !== '') {
+                            subContent = currentVal;
+                        }
                     }
                 }
 
@@ -1658,10 +1887,10 @@ jQuery(document).ready(function ($) {
                         <span style="font-size:9px; font-weight:600; padding:1px 4px; border-radius:4px; background:#e0e7ff; color:#4338ca;">Benutzerdefiniert</span>
                     </div>
                 </div>
-                <button type="button" class="button-link crm-toggle-hf-btn" title="Kopf- & Fußzeile für diese Seite anpassen" style="font-size:10px; font-weight:600; padding:2px 7px; border-radius:12px; background:#f5f3ff; color:#6d28d9; border:1px solid #ddd6fe; display:inline-flex; align-items:center; gap:3px; text-decoration:none; cursor:pointer; user-select:none; white-space:nowrap;" onclick="event.stopPropagation();">
+                <button type="button" class="button-link crm-toggle-hf-btn" title="Kopf- & Fußzeile für diese Seite anpassen" style="font-size:10px; font-weight:600; padding:2px 7px; border-radius:12px; background:#f5f3ff; color:#6d28d9; border:1px solid #ddd6fe; display:inline-flex; align-items:center; gap:3px; text-decoration:none; cursor:pointer; user-select:none; white-space:nowrap;" onclick="event.preventDefault(); event.stopPropagation(); jQuery(this).closest('.crm-pdf-section-item').find('> .crm-hf-drawer').slideToggle(180);">
                     <span class="dashicons dashicons-editor-kitchensink" style="font-size:12px; width:12px; height:12px; line-height:12px;"></span>
                     <span class="crm-hf-summary-text">H: Master | F: Master</span>
-                    &#x25BE;
+                    <span class="crm-hf-chevron">&#x25BE;</span>
                 </button>
                 <span class="crm-subs-counter-badge" style="font-size:10px; font-weight:600; padding:2px 7px; border-radius:12px; background:#f8fafc; color:#475569; border:1px solid #e2e8f0; white-space:nowrap; user-select:none;">1 Unterabschnitt &#x25BE;</span>
                 <div class="crm-section-actions" style="display:flex; gap:3px; align-items:center;" onclick="event.stopPropagation();">
@@ -1970,6 +2199,14 @@ jQuery(document).ready(function ($) {
             $drawer.slideUp(160);
             $btnText.text('Bearbeiten');
         } else {
+            // Falls Textarea leer ist, originalen Standardtext vorausfüllen
+            const $contentInput = $drawer.find('.crm-sub-input-content');
+            if ($contentInput.length && !$contentInput.val().trim()) {
+                const defContent = $sub.data('default-content') || $sub.attr('data-default-content') || '';
+                if (defContent) {
+                    $contentInput.val(defContent);
+                }
+            }
             $drawer.slideDown(180, function () {
                 $drawer.find('.crm-sub-input-title').focus();
             });
@@ -2052,6 +2289,7 @@ jQuery(document).ready(function ($) {
         const $sub = jQuery(this).closest('.crm-pdf-subsection-item');
         const $drawer = $sub.find('> .crm-sub-edit-drawer');
         const origTitle = $sub.data('orig-title') || $sub.attr('data-orig-title') || '';
+        const defContent = $sub.data('default-content') || $sub.attr('data-default-content') || '';
 
         if (origTitle) {
             $sub.data('title', origTitle).attr('data-title', origTitle);
@@ -2060,7 +2298,7 @@ jQuery(document).ready(function ($) {
         }
 
         $sub.data('content', '').attr('data-content', '');
-        $drawer.find('.crm-sub-input-content').val('');
+        $drawer.find('.crm-sub-input-content').val(defContent);
         $sub.find('.crm-sub-custom-badge').hide();
 
         $drawer.slideUp(160);

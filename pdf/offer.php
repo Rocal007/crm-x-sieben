@@ -16,9 +16,9 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
             text-align: left;
             font-size: 16px;
             background-color: #007C90;
-            padding:5pt 5pt 2pt 5pt;
+            padding: 6pt 8pt 6pt 8pt;
             color: white;
-            width:100%;
+            width: 100%;
         }
         .text {
             line-height: 14pt;
@@ -33,10 +33,10 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
             font-size: 11pt;
             font-weight: bold;
             color: #007C90;
-            border-bottom: 1px solid #007C90;
-            padding-bottom: 2pt;
-            margin-top: 12pt;
-            margin-bottom: 5pt;
+            border-bottom: 1.5px solid #007C90;
+            padding-bottom: 3pt;
+            margin-top: 14pt;
+            margin-bottom: 8pt;
         }
         .modul-label {
             font-weight: bold;
@@ -44,28 +44,35 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
         }
         p.modul-text {
             font-size: 10pt;
-            line-height: 15pt;
-            margin-bottom: 5pt;
+            line-height: 16pt;
+            margin-bottom: 6pt;
         }
         ul.modul-list {
-            margin-top: 2pt;
-            margin-bottom: 6pt;
+            margin-top: 4pt;
+            margin-bottom: 10pt;
         }
         ul.modul-list li {
             font-size: 10pt;
-            line-height: 15pt;
+            line-height: 16pt;
+            padding-bottom: 3pt;
         }
         .modul-intro {
-            margin-bottom: 10pt;
+            margin-top: 4pt;
+            margin-bottom: 12pt;
+            line-height: 16pt;
+        }
+        .modul-intro p {
+            line-height: 16pt;
+            margin-bottom: 6pt;
         }
         .abschluss-heading {
             font-size: 11pt;
             font-weight: bold;
             color: #007C90;
-            border-bottom: 1px solid #007C90;
-            padding-bottom: 2pt;
-            margin-top: 14pt;
-            margin-bottom: 5pt;
+            border-bottom: 1.5px solid #007C90;
+            padding-bottom: 3pt;
+            margin-top: 16pt;
+            margin-bottom: 8pt;
         }
     </style>';
 
@@ -93,27 +100,35 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
     $salutation_name = trim($course->salutation . ' ' . trim($course->titel . ' ' . $course->vorname . ' ' . $course->nachname));
     $salutation_name = preg_replace('/\s+/', ' ', $salutation_name);
 
-    $default_ort_durchfuehrung = '<table class="text">   
+    $default_ort_durchfuehrung = '<table class="text" cellpadding="0" cellspacing="0" border="0" style="width:100%;">   
                         <tr>
-                            <td style="width:92%; font-size: 10.5pt;"><strong>ORT:</strong> X SIEBEN Wirtschaftstraining, Rochusgasse 6 in 1030 Wien</td>
+                            <td style="font-size: 11pt; color: #0f172a;"><strong>ORT:</strong> X SIEBEN Wirtschaftstraining, Rochusgasse 6 in 1030 Wien</td>
                         </tr>
-                    </table>
-                    <div style="font-size:12pt">&nbsp;</div>
-                    <table class="text">
-                    <tr>
-                        <td style="line-height: 16pt; color: #334155;">Durchführung unserer Schulungen: Online Unterricht | vor Ort in unseren Veranstaltungsräumen | Blended Learning<br>
-                        <span style="color: #475569; font-size: 9.5pt;">Hinweis: Die Schulung wird bis zur TeilnehmerInnen-Anzahl von drei Personen adäquat verkürzt, wobei alle Inhalte vermittelt werden.</span>
-                        </td>
-                    </tr>
-            </table>';
+                        <tr>
+                            <td style="height: 12pt; font-size: 12pt; line-height: 12pt;">&nbsp;</td>
+                        </tr>
+                        <tr>
+                            <td style="line-height: 18pt; color: #334155; font-size: 10pt;">
+                                <strong>Durchführung unserer Schulungen:</strong> Online Unterricht | vor Ort in unseren Veranstaltungsräumen | Blended Learning
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="height: 8pt; font-size: 8pt; line-height: 8pt;">&nbsp;</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #64748b; font-size: 9.5pt; line-height: 15pt;">
+                                <em>Hinweis: Die Schulung wird bis zur TeilnehmerInnen-Anzahl von drei Personen adäquat verkürzt, wobei alle Inhalte vermittelt werden.</em>
+                            </td>
+                        </tr>
+                    </table>';
 
     // Subsections Mapping per Standard Section
     $subsections_generators = [
         'deckblatt' => [
-            'empfaenger' => '<table class="text" style="width: 100%;">
+            'empfaenger' => '<table class="text" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
                 <tr>
-                    <td style="vertical-align:top; width: 55%; font-size: 10pt; line-height: 14pt;"><div style="font-size:24pt">&nbsp;</div>' . $course->format_postal_address('A', true) . '</td>
-                    <td style="vertical-align:top; text-align: right; font-size: 9pt; line-height: 14pt; width: 45%;">
+                    <td style="vertical-align:top; width: 55%; font-size: 10pt; line-height: 14pt;">' . $course->format_postal_address('A', true) . '</td>
+                    <td style="vertical-align:top; text-align: right; font-size: 9.5pt; line-height: 14pt; width: 45%;">
                         Angebotsnummer: ' . $angebotsnummer . '<br>Angebotsdatum: ' . $course->current . '<br> Angebot gültig bis: ' . $course->expire . '
                     </td>
                 </tr>
@@ -122,7 +137,7 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
 
             'titel' => $course->get_pdf_title($course->titel_short, 'Angebot') . '<div style="font-size:10pt">&nbsp;</div>',
 
-            'anrede_text' => '<table class="text" style="width: 100%;">
+            'anrede_text' => '<table class="text" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
                 <tr>
                     <td>' . esc_html($salutation_name) . ',<br><br>' .
                         $angebot_intro . '
@@ -131,7 +146,7 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
             </table>
             <div style="font-size:6pt">&nbsp;</div>',
 
-            'gruss' => '<table class="text" style="width: 100%;">
+            'gruss' => '<table class="text" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
                 <tr>
                     <td>' . $angebot_gruss . '</td>
                 </tr>
@@ -142,65 +157,82 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
 
             'ps' => (!empty($course->ps) ? ('<div style="font-size:10pt">&nbsp;</div>' . $course->ps) : ''),
 
-            'hinweis_nachstehend' => '<div style="font-size:8pt">&nbsp;</div>
-            <div style="font-size: 9pt;"><strong>Nachstehend: </strong>Veranstaltungsinformationen | Anhang 1: Details zu den Inhalten der Veranstaltung | Anhang 2: Exklusive Zusatzleistungen</div>',
+            'hinweis_nachstehend' => '<div style="font-size:8pt">&nbsp;</div>'
+                . '<table cellpadding="0" cellspacing="0" border="0" style="width: 100%; margin: 0; padding: 0;">'
+                . '<tr><td style="margin: 0; padding: 0; font-size: 9pt; line-height: 1.3; color: #0f172a; text-align: left;">'
+                . '<strong>Nachstehend: </strong>Veranstaltungsinformationen | Anhang 1: Details zu den Inhalten der Veranstaltung | Anhang 2: Exklusive Zusatzleistungen'
+                . '</td></tr></table>',
         ],
 
         'veranstaltung' => [
-            'titel' => $course->get_pdf_title($course->titel_short, 'Veranstaltungsinformationen') . '<div style="font-size:16pt">&nbsp;</div>',
+            'titel' => $course->get_pdf_title($course->titel_short, 'Veranstaltungsinformationen') . '<div style="font-size:18pt; line-height:18pt;">&nbsp;</div>',
 
-            'zeitraum' => '<table style="font-size: 11pt;">
+            'zeitraum' => '<table cellpadding="0" cellspacing="0" border="0" style="font-size: 11pt; width:100%;">
                 <tr>
-                    <td style="width:6%;">' . $course->calender_icon . '</td>
-                    <td style="width:94%;"><div style="font-size:3pt">&nbsp;</div> Vom <strong>' . $course->start_datum . '</strong> bis einschließlich<strong> ' . $course->end_datum . '</strong></td>
+                    <td style="width:6%; vertical-align:middle;">' . $course->calender_icon . '</td>
+                    <td style="width:94%; vertical-align:middle;"><div style="font-size:3pt">&nbsp;</div> Vom <strong>' . $course->start_datum . '</strong> bis einschließlich<strong> ' . $course->end_datum . '</strong></td>
                 </tr>
-            </table>' . crm_pdf_divider('#cbd5e1', 6, 8),
+            </table>' . crm_pdf_divider('#cbd5e1', 12, 16),
 
-            'lehreinheiten' => '<div style="font-size: 11pt;">Diese Veranstaltung beinhaltet <strong>' . $course->anzahl_le . ' Lehreinheiten</strong> (LE, 1 LE = 45min).</div>',
+            'lehreinheiten' => '<div style="font-size: 11pt;">Diese Veranstaltung beinhaltet <strong>' . $course->anzahl_le . ' Lehreinheiten</strong> (LE, 1 LE = 45min).</div><div style="font-size:14pt; line-height:14pt;">&nbsp;</div>',
 
-            'module' => $course->module_html . '<div style="font-size:8pt">&nbsp;</div>' . crm_pdf_divider('#cbd5e1', 6, 8),
-
-            'zertifizierungen' => '<table class="text">
-                <tr>
-                    <td><strong style="color: #0f172a; font-size: 10.5pt;">ZERTIFIZIERUNGSPARTNER ...</strong></td>
-                </tr>
-            </table>
-            <div style="font-size:6pt">&nbsp;</div>'
-            . $course->zertifizierungen_images_html
-            . crm_pdf_divider('#cbd5e1', 8, 10),
-
-            'ort_durchfuehrung' => $course->get_crm_field_with_default('Angebot - Ort und Durchführung', $default_ort_durchfuehrung),
+            'module' => $course->module_html,
         ],
 
         'abschluss' => [
-            'titel' => $course->get_pdf_title($course->titel_short) . '<div style="font-size:20pt">&nbsp;</div>',
+            'titel' => $course->get_pdf_title($course->titel_short) . '<div style="font-size:24pt; line-height:24pt;">&nbsp;</div>',
 
-            'abschluss_box' => '<table class="text">
+            'abschluss_box' => '<table class="text" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
                 <tr>
-                    <td style="width:5%;">' . $course->abschluss_icon . '<div style="padding: 2pt;">&nbsp;</div></td>
-                    <td style="width:93%;"><strong> IHR PERSÖNLICHER ABSCHLUSS</strong></td>
+                    <td style="width:5%; vertical-align:middle;">' . $course->abschluss_icon . '</td>
+                    <td style="width:95%; vertical-align:middle; font-size:11.5pt;"><strong> IHR PERSÖNLICHER ABSCHLUSS</strong></td>
                 </tr>
             </table>'
-            . crm_pdf_divider('#cbd5e1', 4, 8) .
-            '<table class="text">
+            . crm_pdf_divider('#cbd5e1', 12, 16) .
+            '<table cellpadding="0" cellspacing="0" border="0" style="width:100%;">
                 <tr>
-                    <td style="text-align:center; font-size:13pt; border-bottom: 1px solid #007C90; padding-bottom: 6px;">
+                    <td style="height:12pt; font-size:12pt; line-height:12pt;">&nbsp;</td>
+                </tr>
+                <tr>
+                    <td style="text-align:center; font-size:13.5pt; font-weight:bold; color:#0f172a; line-height:22pt;">
                        ' . $course->abschluss . '
-                        <div style="font-size:6pt">&nbsp;</div>
                     </td>
                 </tr>
-            </table>
-            <div style="font-size:12pt">&nbsp;</div>',
-
-            'voraussetzungen' => '<table class="text">
                 <tr>
-                    <td style="width:5%;">' . $course->danger_icon . '</td>
-                    <td style="width:93%;"><strong>Vorausetzungen</strong></td>
+                    <td style="height:10pt; font-size:10pt; line-height:10pt;">&nbsp;</td>
+                </tr>
+                <tr>
+                    <td style="border-top: 1.5px solid #007C90; height:18pt; font-size:18pt; line-height:18pt;">&nbsp;</td>
+                </tr>
+            </table>',
+
+            'voraussetzungen' => '<table class="text" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+                <tr>
+                    <td style="width:5%; vertical-align:middle;">' . $course->danger_icon . '</td>
+                    <td style="width:95%; vertical-align:middle; font-size:11.5pt;"><strong>Voraussetzungen</strong></td>
+                </tr>
+                <tr>
+                    <td colspan="2" style="height:8pt; font-size:8pt; line-height:8pt;">&nbsp;</td>
                 </tr>
                 <tr>
                     <td colspan="2">' . $course->voraussetzungen_html . '</td>
                 </tr>
-            </table>' . crm_pdf_divider('#cbd5e1', 6, 8),
+            </table>' . crm_pdf_divider('#cbd5e1', 16, 20),
+
+            'zertifizierungen' => '<table class="text" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+                <tr>
+                    <td style="font-size:11.5pt; font-weight:bold; color:#0f172a;"><strong>ZERTIFIZIERUNGSPARTNER ...</strong></td>
+                </tr>
+                <tr>
+                    <td style="height:10pt; font-size:10pt; line-height:10pt;">&nbsp;</td>
+                </tr>
+                <tr>
+                    <td>' . $course->zertifizierungen_images_html . '</td>
+                </tr>
+            </table>'
+            . crm_pdf_divider('#cbd5e1', 18, 22),
+
+            'ort_durchfuehrung' => $course->get_crm_field_with_default('Angebot - Ort und Durchführung', $default_ort_durchfuehrung),
 
             'beratung' => $course->beratung_email,
         ],
@@ -210,11 +242,11 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
 
             'preistabelle' => $course->get_gesamt_kosten_html() . '<div style="font-size:40pt">&nbsp;</div>',
 
-            'gueltigkeit' => '<table class="text">
+            'gueltigkeit' => '<table class="text" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                    <td><strong>ANGEBOT GÜLTIG</strong> bis max. Gruppengrösse erreicht bzw.: <span> ' . $course->expire . '</span></td>
+                    <td style="font-size: 10.5pt;"><strong>ANGEBOT GÜLTIG</strong> bis max. Gruppengrösse erreicht bzw.: <span> ' . $course->expire . '</span></td>
                 </tr>
-            </table>' . crm_pdf_divider('#cbd5e1', 6, 8),
+            </table>' . crm_pdf_divider('#cbd5e1', 12, 16),
 
             'bankverbindung' => $course->bankverbindung,
         ],
@@ -228,14 +260,15 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
 
             'signatur_kunde' => $course->signatur . '<div style="font-size:10pt">&nbsp;</div>',
 
-            'anhang_hinweise' => '<div style="font-size:10pt">
-                <strong>Anhang 1: </strong>Details zu den Inhalten der Veranstaltung<br>
-                <strong>Anhang 2: </strong>Exklusive Zusatzleistungen<br>
-            </div>',
+            'anhang_hinweise' => '<table cellpadding="0" cellspacing="0" border="0" style="width: 100%; margin: 0; padding: 0;">'
+                . '<tr><td style="margin: 0; padding: 0; font-size: 10pt; line-height: 1.4; color: #0f172a; text-align: left;">'
+                . '<strong>Anhang 1: </strong>Details zu den Inhalten der Veranstaltung<br>'
+                . '<strong>Anhang 2: </strong>Exklusive Zusatzleistungen'
+                . '</td></tr></table>',
         ],
 
         'inhalte' => [
-            'titel' => $course->get_pdf_title('Details zu den Inhalten', 'Anhang 1'),
+            'titel' => $course->get_pdf_title('Details zu den Inhalten', 'Anhang 1') . '<div style="font-size:18pt; line-height:18pt;">&nbsp;</div>',
             'curriculum' => $course->inhalte,
         ],
 
@@ -246,6 +279,13 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
     ];
 
     // --- PDF Document Generation ---
+    if (!class_exists('TCPDF')) {
+        $tcpdf_path = get_template_directory() . '/tcbpdf/tcpdf.php';
+        if (file_exists($tcpdf_path)) {
+            require_once $tcpdf_path;
+        }
+    }
+
     if (!class_exists('MYPDFA_Angebot')) {
         class MYPDFA_Angebot extends TCPDF
         {
@@ -270,27 +310,35 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
 
             public function resolveHeaderMode($cfg)
             {
-                $mode = $cfg['header_mode'] ?? 'master';
-                if ($mode === 'master') {
-                    $mode = $this->master_config['header_mode'] ?? 'full';
-                }
+                $sec_mode = $cfg['header_mode'] ?? 'master';
 
-                if ($mode !== 'none' && $mode !== 'custom') {
-                    $has_logo = isset($cfg['header_logo']) ? !empty($cfg['header_logo']) : (!empty($this->master_config['header_logo']));
-                    $has_addr = isset($cfg['header_address']) ? !empty($cfg['header_address']) : (!empty($this->master_config['header_address']));
-
-                    if (!$has_logo && !$has_addr) {
-                        return 'none';
+                // 1. Wenn der Abschnitt auf die Master-Einstellung verweist:
+                if ($sec_mode === 'master') {
+                    $master_mode = $this->master_config['header_mode'] ?? 'full';
+                    if (in_array($master_mode, ['none', 'custom', 'logo_only', 'address_only'], true)) {
+                        return $master_mode;
                     }
-                    if ($has_logo && !$has_addr) {
-                        return 'logo_only';
-                    }
-                    if (!$has_logo && $has_addr) {
-                        return 'address_only';
-                    }
+                    // Für Master 'full': Master-Checkboxen prüfen
+                    $has_logo = !empty($this->master_config['header_logo']);
+                    $has_addr = !empty($this->master_config['header_address']);
+                    if (!$has_logo && !$has_addr) return 'none';
+                    if ($has_logo && !$has_addr) return 'logo_only';
+                    if (!$has_logo && $has_addr) return 'address_only';
                     return 'full';
                 }
-                return $mode;
+
+                // 2. Explizit gewählter Abschnittsmodus:
+                if (in_array($sec_mode, ['none', 'custom', 'logo_only', 'address_only'], true)) {
+                    return $sec_mode;
+                }
+
+                // 3. Für expliziten Abschnittsmodus 'full': Abschnitts-Checkboxen prüfen
+                $has_logo = isset($cfg['header_logo']) ? !empty($cfg['header_logo']) : true;
+                $has_addr = isset($cfg['header_address']) ? !empty($cfg['header_address']) : true;
+                if (!$has_logo && !$has_addr) return 'none';
+                if ($has_logo && !$has_addr) return 'logo_only';
+                if (!$has_logo && $has_addr) return 'address_only';
+                return 'full';
             }
 
             public function resolveFooterMode($cfg)
@@ -308,11 +356,11 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
                 if ($h_mode === 'none') {
                     $this->SetTopMargin(18);
                 } elseif ($h_mode === 'logo_only') {
-                    $this->SetTopMargin(30);
+                    $this->SetTopMargin(44);
                 } elseif ($h_mode === 'address_only') {
-                    $this->SetTopMargin(26);
+                    $this->SetTopMargin(36);
                 } else {
-                    $this->SetTopMargin(42);
+                    $this->SetTopMargin(44);
                 }
 
                 $f_mode = $this->resolveFooterMode($this->current_section_config);
@@ -346,9 +394,12 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
                     $html = function_exists('crm_replace_pdf_placeholders') ? crm_replace_pdf_placeholders($custom_html, $this->course_obj) : $custom_html;
                 } elseif ($mode === 'logo_only') {
                     $logo = !empty($this->company_info['xsieben_logo']) ? $this->company_info['xsieben_logo'] : $this->logo_html;
+                    if (empty($logo) && function_exists('crm_resolve_asset_path')) {
+                        $logo = '<img width="200" style="max-width:200px; height:auto;" src="' . esc_attr(crm_resolve_asset_path('xsieben_logo.png')) . '">';
+                    }
                     $html = '<table cellspacing="0" cellpadding="0" border="0" style="width: 100%;">
                         <tr>
-                            <td style="font-size: 9pt; width: 100%; text-align: left;">' . $logo . '</td>
+                            <td style="width: 100%; text-align: left; vertical-align: top; line-height: 1; font-size: 1pt; padding: 0; margin: 0;">' . $logo . '</td>
                         </tr>
                     </table>';
                 } elseif ($mode === 'address_only') {
@@ -367,30 +418,27 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
                         </tr>
                     </table>';
                 } else {
-                    // Full default header: Logo left, address right
-                    if (!empty($this->header_content)) {
-                        $html = $this->header_content;
-                    } else {
-                        $logo    = !empty($this->company_info['xsieben_logo']) ? $this->company_info['xsieben_logo'] : $this->logo_html;
-                        $c_name  = !empty($this->company_info['company_name']) ? $this->company_info['company_name'] : 'X SIEBEN Wirtschaftstraining GmbH';
-                        $c_addr  = !empty($this->company_info['company_address']) ? $this->company_info['company_address'] : 'Kurzegasse 7, 2493 Lichtenwörth';
-                        $c_phone = !empty($this->company_info['company_phone']) ? $this->company_info['company_phone'] : '0800 700 170';
-                        $c_email = !empty($this->company_info['company_email']) ? $this->company_info['company_email'] : 'office@x-sieben.at';
-
-                        $html = '<table cellspacing="0" cellpadding="0" border="0" style="text-align: left; width: 100%;">
-                            <tr>
-                                <td style="font-size: 9pt; width: 55%; vertical-align: top;">' . $logo . '
-                                <div style="font-size:11pt">&nbsp;</div>
-                                </td>
-                                <td style="font-size: 9pt; width: 45%; text-align: right; line-height: 13pt; color: #334155; vertical-align: top;">
-                                    <strong>' . htmlspecialchars($c_name) . '</strong><br>
-                                    ' . htmlspecialchars($c_addr) . '<br>
-                                    Telefon: ' . htmlspecialchars($c_phone) . '<br>
-                                    E-Mail: ' . htmlspecialchars($c_email) . '
-                                </td>
-                            </tr>
-                        </table>';
+                    // Full header: Logo links, Firmenadresse rechts — immer dynamisch aufgebaut
+                    $logo    = !empty($this->company_info['xsieben_logo']) ? $this->company_info['xsieben_logo'] : $this->logo_html;
+                    if (empty($logo) && function_exists('crm_resolve_asset_path')) {
+                        $logo = '<img width="200" style="max-width:200px; height:auto;" src="' . esc_attr(crm_resolve_asset_path('xsieben_logo.png')) . '">';
                     }
+                    $c_name  = !empty($this->company_info['company_name']) ? $this->company_info['company_name'] : 'X SIEBEN Wirtschaftstraining GmbH';
+                    $c_addr  = !empty($this->company_info['company_address']) ? $this->company_info['company_address'] : 'Kurzegasse 7, 2493 Lichtenwörth';
+                    $c_phone = !empty($this->company_info['company_phone']) ? $this->company_info['company_phone'] : '0800 700 170';
+                    $c_email = !empty($this->company_info['company_email']) ? $this->company_info['company_email'] : 'office@x-sieben.at';
+
+                    $html = '<table cellspacing="0" cellpadding="0" border="0" style="text-align: left; width: 100%;">
+                        <tr>
+                            <td style="width: 55%; vertical-align: top; line-height: 1; font-size: 1pt; padding: 0; margin: 0;">' . $logo . '</td>
+                            <td style="font-size: 9pt; width: 45%; text-align: right; line-height: 13pt; color: #334155; vertical-align: top; padding: 0; margin: 0;">
+                                <strong>' . htmlspecialchars($c_name) . '</strong><br>
+                                ' . htmlspecialchars($c_addr) . '<br>
+                                Telefon: ' . htmlspecialchars($c_phone) . '<br>
+                                E-Mail: ' . htmlspecialchars($c_email) . '
+                            </td>
+                        </tr>
+                    </table>';
                 }
 
                 if (!empty($html)) {
@@ -513,6 +561,10 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
     $header_company_phone   = !empty($course->company_phone) ? $course->company_phone : '0800 700 170';
     $header_company_email   = !empty($course->company_email) ? $course->company_email : 'office@x-sieben.at';
 
+    $effective_logo = !empty($course->xsieben_logo)
+        ? $course->xsieben_logo
+        : (function_exists('crm_resolve_asset_path') ? '<img width="200" style="max-width:200px; height:auto;" src="' . esc_attr(crm_resolve_asset_path('xsieben_logo.png')) . '">' : '');
+
     $pdf->company_info = [
         'company_name'    => $header_company_name,
         'company_address' => $header_company_address,
@@ -521,27 +573,25 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
         'company_uid'     => !empty($course->company_uid) ? $course->company_uid : 'ATU76624137',
         'company_court'   => !empty($course->company_court) ? $course->company_court : 'Landesgericht Wiener Neustadt',
         'company_fn'      => !empty($course->company_fn) ? $course->company_fn : 'FN 550277 g',
-        'xsieben_logo'    => $course->xsieben_logo,
+        'xsieben_logo'    => $effective_logo,
     ];
     $pdf->master_config = function_exists('crm_get_pdf_master_header_footer') ? crm_get_pdf_master_header_footer() : [];
     $pdf->course_obj    = $course;
 
-    $header_html_content = '<table cellspacing="0" cellpadding="0" border="0" style="text-align: left;">
+    $header_html_content = '<table cellspacing="0" cellpadding="0" border="0" style="text-align: left; width: 100%;">
         <tr>
-            <td style="font-size: 9pt; width:60%;">' . $course->xsieben_logo . '
-            <div style="font-size:11pt">&nbsp;</div>
-            </td>
-            <td style="font-size: 9pt; width:40%; text-align: right">
-                ' . htmlspecialchars($header_company_name) . ' <br>
-                ' . htmlspecialchars($header_company_address) . ' <br>
-                Telefon: ' . htmlspecialchars($header_company_phone) . ' <br>
+            <td style="width: 55%; vertical-align: top; line-height: 1; font-size: 1pt; padding: 0; margin: 0;">' . $effective_logo . '</td>
+            <td style="font-size: 9pt; width: 45%; text-align: right; line-height: 13pt; color: #334155; vertical-align: top; padding: 0; margin: 0;">
+                <strong>' . htmlspecialchars($header_company_name) . '</strong><br>
+                ' . htmlspecialchars($header_company_address) . '<br>
+                Telefon: ' . htmlspecialchars($header_company_phone) . '<br>
                 E-Mail: ' . htmlspecialchars($header_company_email) . '
             </td>
         </tr>
     </table>';
 
     $pdf->header_content = $header_html_content;
-    $pdf->logo_html       = $course->xsieben_logo;
+    $pdf->logo_html       = $effective_logo;
     $pdf->footer_text     = !empty($course->company_uid)
         ? ("UID: " . $course->company_uid . " | Firmenbuchgericht: " . $course->company_court . "\nFirmenbuchnummer: " . $course->company_fn)
         : "UID: ATU76624137 | Firmenbuchgericht: Landesgericht Wiener Neustadt\nFirmenbuchnummer: FN 550277 g";
@@ -554,7 +604,7 @@ function xsieben_offer_pdf($entry_id, $course_id, $output_to_browser=true, $cust
     $pdf->setHeaderFont(array(PDF_FONT_NAME_MAIN, '', PDF_FONT_SIZE_MAIN));
     $pdf->setFooterFont(array(PDF_FONT_NAME_DATA, '', PDF_FONT_SIZE_DATA));
     $pdf->SetDefaultMonospacedFont(PDF_FONT_MONOSPACED);
-    $pdf->SetMargins(PDF_MARGIN_LEFT, 42, PDF_MARGIN_RIGHT);
+    $pdf->SetMargins(PDF_MARGIN_LEFT, 44, PDF_MARGIN_RIGHT);
     $pdf->SetHeaderMargin(PDF_MARGIN_HEADER);
     $pdf->SetFooterMargin(PDF_MARGIN_FOOTER - 1);
     $pdf->SetAutoPageBreak(TRUE, PDF_MARGIN_BOTTOM);

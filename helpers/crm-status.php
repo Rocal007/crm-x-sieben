@@ -58,8 +58,35 @@ function crm_ensure_status_tables()
         KEY status_date (status_date)
     ) $charset_collate;";
 
+    // 3. Document snapshots table (revisionssicheres Archiv für versendete Dokumente & Payloads)
+    $table_snapshots = $wpdb->prefix . 'crm_document_snapshots';
+    $sql_snapshots = "CREATE TABLE $table_snapshots (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        entry_id bigint(20) NOT NULL,
+        form_id bigint(20) NOT NULL DEFAULT 60468,
+        course_id bigint(20) NOT NULL,
+        doc_type varchar(50) NOT NULL,
+        status_key varchar(60) NOT NULL,
+        recipient varchar(191) NOT NULL,
+        sent_targets text NOT NULL,
+        subject varchar(255) NOT NULL,
+        email_body_html mediumtext NOT NULL,
+        pdf_filename varchar(255) DEFAULT NULL,
+        pdf_file_path varchar(255) DEFAULT NULL,
+        pdf_file_url varchar(255) DEFAULT NULL,
+        data_snapshot_json longtext NOT NULL,
+        is_test tinyint(1) NOT NULL DEFAULT 0,
+        sent_by bigint(20) NOT NULL DEFAULT 0,
+        sent_at datetime NOT NULL,
+        PRIMARY KEY  (id),
+        KEY entry_id (entry_id),
+        KEY doc_type (doc_type),
+        KEY sent_at (sent_at)
+    ) $charset_collate;";
+
     dbDelta($sql_status);
     dbDelta($sql_history);
+    dbDelta($sql_snapshots);
 
     // Defensive check to ensure columns exist immediately on existing tables
     $has_course_col = $wpdb->get_results("SHOW COLUMNS FROM $table_status LIKE 'course_start_date'");
@@ -668,6 +695,32 @@ add_action('wp_ajax_crm_get_entry_history', function () {
 });
 
 /**
+ * AJAX handler for loading the document snapshots archive of an entry.
+ */
+add_action('wp_ajax_crm_get_entry_snapshots', function () {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => __('Unauthorized access.', 'custom-crm')]);
+    }
+    if (!check_ajax_referer('crm_ajax_nonce', 'nonce', false)) {
+        wp_send_json_error(['message' => __('Security check failed.', 'custom-crm')]);
+    }
+
+    $entry_id = isset($_POST['entry_id']) ? absint($_POST['entry_id']) : 0;
+    if (!$entry_id) {
+        wp_send_json_error(['message' => __('Entry ID fehlt.', 'custom-crm')]);
+    }
+
+    $count = crm_get_entry_snapshots_count($entry_id);
+    $html  = crm_render_snapshots_html($entry_id);
+
+    wp_send_json_success([
+        'entry_id' => $entry_id,
+        'count'    => $count,
+        'html'     => $html,
+    ]);
+});
+
+/**
  * Saves and freezes course dates with an inquiry entry so historical records remain immutable.
  *
  * @param int $entry_id
@@ -820,3 +873,329 @@ add_action('wpforms_process_complete', function ($fields, $entry, $form_data, $e
         crm_save_entry_course_dates($entry_id, $course_id, $start_date, $end_date, $form_id);
     }
 }, 10, 4);
+
+/**
+ * =========================================================================
+ * CRM DOCUMENT SNAPSHOT ENGINE (Revisionssicheres Dokumenten- & Daten-Archiv)
+ * =========================================================================
+ */
+
+/**
+ * Erstellt einen permanenten Dokument- und Daten-Snapshot eines versendeten Dokuments.
+ * Kopiert generierte PDFs in ein geschütztes Archivverzeichnis und speichert E-Mail-HTML sowie JSON-Dump.
+ *
+ * @param array $args
+ * @return int|false Snapshot-ID oder false
+ */
+function crm_create_document_snapshot(array $args)
+{
+    global $wpdb;
+
+    $entry_id  = absint($args['entry_id'] ?? 0);
+    $course_id = absint($args['course_id'] ?? 0);
+    if (!$entry_id) {
+        return false;
+    }
+
+    crm_ensure_status_tables();
+    $table = $wpdb->prefix . 'crm_document_snapshots';
+
+    $form_id         = absint($args['form_id'] ?? 60468);
+    $doc_type        = sanitize_key($args['doc_type'] ?? 'angebot');
+    $status_key      = sanitize_key($args['status_key'] ?? 'angebot_gesendet');
+    $recipient       = sanitize_email($args['recipient'] ?? '');
+    $sent_targets    = is_array($args['sent_targets'] ?? '') ? implode(', ', array_map('sanitize_email', $args['sent_targets'])) : sanitize_text_field($args['sent_targets'] ?? '');
+    $subject         = sanitize_text_field($args['subject'] ?? '');
+    $email_body_html = wp_unslash($args['email_body_html'] ?? '');
+    $is_test         = !empty($args['is_test']) ? 1 : 0;
+    $sent_by         = isset($args['sent_by']) ? absint($args['sent_by']) : (get_current_user_id() ?: 0);
+    $sent_at         = !empty($args['sent_at']) ? $args['sent_at'] : current_time('mysql');
+
+    // 1. PDF-Archivierung (in geschützten persistenten Upload-Ordner)
+    $archived_filenames = [];
+    $archived_filepaths = [];
+    $archived_fileurls  = [];
+
+    $attachments = (array) ($args['attachments'] ?? []);
+    if (!empty($attachments)) {
+        $upload_dir  = wp_upload_dir();
+        $archive_dir = $upload_dir['basedir'] . '/crm_archive/' . date('Y/m');
+        $archive_url = $upload_dir['baseurl'] . '/crm_archive/' . date('Y/m');
+
+        if (!file_exists($archive_dir)) {
+            wp_mkdir_p($archive_dir);
+        }
+
+        foreach ($attachments as $att_path) {
+            $att_path = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $att_path);
+            if (file_exists($att_path)) {
+                $ext = pathinfo($att_path, PATHINFO_EXTENSION);
+                $orig_name = pathinfo($att_path, PATHINFO_FILENAME);
+                $safe_orig = preg_replace('/[^\p{L}0-9_\-]/u', '_', $orig_name);
+                $unique_name = sanitize_file_name("snapshot_{$doc_type}_{$entry_id}_" . date('Ymd_His') . "_{$safe_orig}.{$ext}");
+                $target_path = $archive_dir . '/' . $unique_name;
+
+                if (@copy($att_path, $target_path)) {
+                    $archived_filenames[] = $unique_name;
+                    $archived_filepaths[] = $target_path;
+                    $archived_fileurls[]  = $archive_url . '/' . rawurlencode($unique_name);
+                }
+            }
+        }
+    }
+
+    $pdf_filename  = !empty($archived_filenames) ? implode(', ', $archived_filenames) : null;
+    $pdf_file_path = !empty($archived_filepaths) ? implode(', ', $archived_filepaths) : null;
+    $pdf_file_url  = !empty($archived_fileurls) ? implode(', ', $archived_fileurls) : null;
+
+    // 2. Daten-Snapshot JSON generieren
+    $data_snapshot = [];
+    $crm_model = $args['crm_model'] ?? null;
+
+    if ($crm_model instanceof CRM_Model) {
+        $data_snapshot = [
+            'entry_id'        => $entry_id,
+            'course_id'       => $course_id,
+            'kurstitel'       => $crm_model->kurstitel ?? $crm_model->title ?? '',
+            'kurstitel_short' => $crm_model->kurstitel_short ?? '',
+            'kurstyp'         => $crm_model->kurstyp ?? '',
+            'startdatum'      => $crm_model->start_datum ?? '',
+            'enddatum'        => $crm_model->end_datum ?? '',
+            'uhrzeit'         => $crm_model->uhrzeit ?? '',
+            'anzahl_le'       => $crm_model->anzahl_le ?? '',
+            'schulungsort'    => $crm_model->schulungsort ?? '',
+            'preis_netto'     => $crm_model->preis_netto ?? '',
+            'preis_brutto'    => $crm_model->preis_brutto ?? '',
+            'le_single'       => $crm_model->le_single ?? '',
+            'zertifizierungen'=> $crm_model->zertifizierungen ?? [],
+            'form_certifications' => method_exists($crm_model, 'get_certifications_from_form_field') ? $crm_model->get_certifications_from_form_field() : [],
+            'trainer'         => $crm_model->trainer ?? '',
+            'kunde'           => [
+                'anrede'           => $crm_model->anrede ?? '',
+                'salutation'       => $crm_model->salutation ?? '',
+                'titel'            => $crm_model->titel ?? '',
+                'vorname'          => $crm_model->vorname ?? '',
+                'nachname'         => $crm_model->nachname ?? '',
+                'email'            => $crm_model->email ?? '',
+                'customer_company' => $crm_model->customer_company ?? '',
+                'customer_type'    => $crm_model->customer_type ?? '',
+                'street'           => $crm_model->street ?? '',
+                'city'             => $crm_model->city ?? '',
+                'zip_code'         => $crm_model->zip_code ?? '',
+                'country'          => $crm_model->country ?? 'AT',
+                'svr'              => $crm_model->svr ?? '',
+            ],
+            'captured_at'     => $sent_at,
+        ];
+    } elseif (!empty($args['data_snapshot']) && is_array($args['data_snapshot'])) {
+        $data_snapshot = $args['data_snapshot'];
+    }
+
+    $data_snapshot_json = wp_json_encode($data_snapshot, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+
+    // 3. In Datenbank einfügen
+    $inserted = $wpdb->insert(
+        $table,
+        [
+            'entry_id'           => $entry_id,
+            'form_id'            => $form_id,
+            'course_id'          => $course_id,
+            'doc_type'           => $doc_type,
+            'status_key'         => $status_key,
+            'recipient'          => $recipient,
+            'sent_targets'       => $sent_targets,
+            'subject'            => $subject,
+            'email_body_html'    => $email_body_html,
+            'pdf_filename'       => $pdf_filename,
+            'pdf_file_path'      => $pdf_file_path,
+            'pdf_file_url'       => $pdf_file_url,
+            'data_snapshot_json' => $data_snapshot_json,
+            'is_test'            => $is_test,
+            'sent_by'            => $sent_by,
+            'sent_at'            => $sent_at,
+        ],
+        ['%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s']
+    );
+
+    return $inserted ? (int)$wpdb->insert_id : false;
+}
+
+/**
+ * Holt alle Snapshots eines Eintrags chronologisch absteigend.
+ *
+ * @param int $entry_id
+ * @return array
+ */
+function crm_get_entry_snapshots($entry_id)
+{
+    global $wpdb;
+    $entry_id = absint($entry_id);
+    if (!$entry_id) return [];
+    crm_ensure_status_tables();
+    $table = $wpdb->prefix . 'crm_document_snapshots';
+    return $wpdb->get_results(
+        $wpdb->prepare("SELECT * FROM $table WHERE entry_id = %d ORDER BY sent_at DESC, id DESC", $entry_id),
+        ARRAY_A
+    );
+}
+
+/**
+ * Holt einen einzelnen Snapshot anhand seiner ID ab.
+ *
+ * @param int $snapshot_id
+ * @return array|null
+ */
+function crm_get_snapshot_by_id($snapshot_id)
+{
+    global $wpdb;
+    $snapshot_id = absint($snapshot_id);
+    if (!$snapshot_id) return null;
+    crm_ensure_status_tables();
+    $table = $wpdb->prefix . 'crm_document_snapshots';
+    return $wpdb->get_row(
+        $wpdb->prepare("SELECT * FROM $table WHERE id = %d", $snapshot_id),
+        ARRAY_A
+    );
+}
+
+/**
+ * Ermittelt die Anzahl der vorhandenen Snapshots für einen Eintrag.
+ *
+ * @param int $entry_id
+ * @return int
+ */
+function crm_get_entry_snapshots_count($entry_id)
+{
+    global $wpdb;
+    $entry_id = absint($entry_id);
+    if (!$entry_id) return 0;
+    crm_ensure_status_tables();
+    $table = $wpdb->prefix . 'crm_document_snapshots';
+    return (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table WHERE entry_id = %d", $entry_id));
+}
+
+/**
+ * Rendert das HTML für das Snapshot-Archiv eines Eintrags.
+ *
+ * @param int $entry_id
+ * @return string HTML-Ausgabe
+ */
+function crm_render_snapshots_html($entry_id)
+{
+    $snapshots = crm_get_entry_snapshots($entry_id);
+    if (empty($snapshots)) {
+        return '<div style="padding: 24px; text-align: center; color: #64748b; font-size: 13px;">
+            <span class="dashicons dashicons-archive" style="font-size: 32px; width: 32px; height: 32px; display: block; margin: 0 auto 8px; opacity: 0.5;"></span>
+            Für diesen Eintrag wurden bisher noch keine Dokumente versendet oder archiviert.
+        </div>';
+    }
+
+    $doc_labels = [
+        'angebot'             => 'Kursangebot',
+        'kb'                  => 'Kurszeitenbestätigung',
+        'angebot_kb'          => 'Angebot & Kurszeitenbestätigung',
+        'angebot_kurszeiten'  => 'Angebot & Kurszeitenbestätigung',
+        'xsieben_angebot'     => 'Kursangebot',
+        'xsieben_kurszeitenbestaetigung' => 'Kurszeitenbestätigung',
+        'xsieben_angebot_kurszeiten'     => 'Angebot & Kurszeitenbestätigung',
+        'xsieben_angebot_und_kurszeiten' => 'Angebot & Kurszeitenbestätigung',
+        'anmeldung'           => 'Anmeldebestätigung',
+        'tb'                  => 'Teilnahmebestätigung',
+        'diplom'              => 'Diplom / Zertifikat',
+        'invoice'             => 'Honorarnote',
+    ];
+
+    $html = '<div class="crm-snapshots-container" style="display: flex; flex-direction: column; gap: 14px;">';
+
+    foreach ($snapshots as $snap) {
+        $id         = absint($snap['id']);
+        $doc_type   = esc_html($snap['doc_type']);
+        $doc_title  = $doc_labels[$snap['doc_type']] ?? ucfirst($doc_type);
+        $is_test    = !empty($snap['is_test']);
+        $date_fmt   = date_i18n('d.m.Y, H:i:s', strtotime($snap['sent_at']));
+        $subject    = esc_html($snap['subject']);
+        $targets    = esc_html($snap['sent_targets'] ?: $snap['recipient']);
+        $pdf_urls   = !empty($snap['pdf_file_url']) ? array_filter(array_map('trim', explode(',', $snap['pdf_file_url']))) : [];
+        $pdf_names  = !empty($snap['pdf_filename']) ? array_filter(array_map('trim', explode(',', $snap['pdf_filename']))) : [];
+
+        $user_info = '';
+        if (!empty($snap['sent_by'])) {
+            $u = get_userdata($snap['sent_by']);
+            $user_info = $u ? $u->display_name : 'User #' . $snap['sent_by'];
+        } else {
+            $user_info = 'System';
+        }
+
+        $badge_type = $is_test
+            ? '<span style="background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600;">🧪 TEST-VERSAND</span>'
+            : '<span style="background: #dcfce7; color: #166534; border: 1px solid #86efac; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600;">✅ LIVE VERSENDET</span>';
+
+        $html .= '<div class="crm-snapshot-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">';
+        
+        // Header
+        $html .= '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">';
+        $html .= '  <div>';
+        $html .= '    <strong style="font-size: 13.5px; color: #007C90;">' . esc_html($doc_title) . '</strong> ';
+        $html .= '    ' . $badge_type;
+        $html .= '  </div>';
+        $html .= '  <div style="font-size: 11px; color: #64748b;">';
+        $html .= '    📅 ' . esc_html($date_fmt) . ' &bull; 👤 ' . esc_html($user_info);
+        $html .= '  </div>';
+        $html .= '</div>';
+
+        // Details
+        $html .= '<div style="font-size: 12px; line-height: 1.5; color: #334155; margin-bottom: 12px;">';
+        $html .= '  <div><strong>Betreff:</strong> ' . $subject . '</div>';
+        $html .= '  <div><strong>Empfänger:</strong> ' . $targets . '</div>';
+        $html .= '</div>';
+
+        // Actions
+        $html .= '<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; border-top: 1px solid #f1f5f9; padding-top: 10px;">';
+        
+        // PDF Links
+        if (!empty($pdf_urls)) {
+            foreach ($pdf_urls as $idx => $purl) {
+                $pname = $pdf_names[$idx] ?? 'Archiviertes PDF ' . ($idx + 1);
+                $html .= sprintf(
+                    '<a href="%s" target="_blank" class="button button-small" style="display: inline-flex; align-items: center; gap: 4px; color: #007C90; border-color: #007C90;"><span class="dashicons dashicons-pdf" style="font-size: 16px; width: 16px; height: 16px;"></span> %s</a>',
+                    esc_url($purl),
+                    esc_html($pname)
+                );
+            }
+        } else {
+            $html .= '<span style="font-size: 11px; color: #94a3b8; font-style: italic;">Kein PDF-Anhang hinterlegt</span>';
+        }
+
+        // Email Text View Button
+        $html .= sprintf(
+            '<button type="button" class="button button-small crm-btn-view-snapshot-email" data-snapshot-id="%d" style="display: inline-flex; align-items: center; gap: 4px;"><span class="dashicons dashicons-email-alt" style="font-size: 16px; width: 16px; height: 16px;"></span> E-Mail-Text anzeigen</button>',
+            $id
+        );
+
+        // Data JSON View Toggle
+        $html .= sprintf(
+            '<button type="button" class="button button-small crm-btn-view-snapshot-data" data-snapshot-id="%d" style="display: inline-flex; align-items: center; gap: 4px;"><span class="dashicons dashicons-database" style="font-size: 16px; width: 16px; height: 16px;"></span> Konditionen & Daten</button>',
+            $id
+        );
+
+        $html .= '</div>'; // End Actions
+
+        // Hidden Email Body & Data Container
+        $html .= sprintf(
+            '<div id="crm-snapshot-email-%d" style="display:none;" data-email-body="%s"></div>',
+            $id,
+            esc_attr($snap['email_body_html'])
+        );
+        $html .= sprintf(
+            '<div id="crm-snapshot-data-%d" style="display:none;" data-snapshot-json="%s"></div>',
+            $id,
+            esc_attr($snap['data_snapshot_json'])
+        );
+
+        $html .= '</div>'; // End Card
+    }
+
+    $html .= '</div>'; // End Container
+
+    return $html;
+}

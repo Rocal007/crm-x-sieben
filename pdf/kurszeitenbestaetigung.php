@@ -30,9 +30,8 @@ function xsieben_kurszeitenbestaetigung_pdf($entry_id, $course_id, $output_to_br
     $selbststudium    = $course->selbststudium;  // now a key-value array
     $kurszeiten_datum = date('d.m.Y');
 
-    // Assets-Verzeichnis (autark)
-    $assets_dir   = get_template_directory() . '/inc/core/crm/assets/';
-    $stempel_file = file_exists($assets_dir . 'stempel.png') ? ($assets_dir . 'stempel.png') : ($assets_dir . 'Signatur_Blau.png');
+    // Assets-Pfade (autark, mit URL-Fallback für Live-Server)
+    $stempel_file = crm_resolve_asset_path(file_exists(get_template_directory() . '/inc/core/crm/assets/stempel.png') ? 'stempel.png' : 'Signatur_Blau.png');
 
     // Dateiname
     $safe_vorname  = sanitize_file_name($vorname ?: 'Kunde');
@@ -328,6 +327,13 @@ function xsieben_kurszeitenbestaetigung_pdf($entry_id, $course_id, $output_to_br
                 }
             }
             $html .= $sec_out;
+        }
+    }
+
+    if (!class_exists('TCPDF')) {
+        $tcpdf_path = get_template_directory() . '/tcbpdf/tcpdf.php';
+        if (file_exists($tcpdf_path)) {
+            require_once $tcpdf_path;
         }
     }
 

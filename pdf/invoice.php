@@ -99,13 +99,10 @@ function xsieben_invoice_pdf($entry_id, $course_id, $output_to_browser = true, $
         }
     }
 
-    // Logo ermitteln
-    $assets_dir = get_template_directory() . '/inc/core/crm/assets/';
-    $logo_file  = file_exists($assets_dir . 'xsieben_logo.png') ? ($assets_dir . 'xsieben_logo.png') : ($assets_dir . 'logo_x-sieben.png');
-    $logo_html  = '';
-    if (file_exists($logo_file)) {
-        $logo_html = '<img src="' . esc_attr($logo_file) . '" width="170">';
-    } elseif (!empty($course->xsieben_logo)) {
+    // Logo ermitteln (mit URL-Fallback für Live-Server)
+    $logo_src  = crm_resolve_asset_path('xsieben_logo.png');
+    $logo_html = '<img src="' . esc_attr($logo_src) . '" width="170">';
+    if (!empty($course->xsieben_logo)) {
         $logo_html = $course->xsieben_logo;
     }
 

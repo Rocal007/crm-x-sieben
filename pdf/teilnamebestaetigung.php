@@ -392,6 +392,13 @@ function xsieben_teilnahmebestaetigung_pdf($entry_id, $course_id, $output_to_bro
         }
     }
 
+    if (!class_exists('TCPDF')) {
+        $tcpdf_path = get_template_directory() . '/tcbpdf/tcpdf.php';
+        if (file_exists($tcpdf_path)) {
+            require_once $tcpdf_path;
+        }
+    }
+
     if (!class_exists('MYPDFA_teilnahme')) {
         class MYPDFA_teilnahme extends TCPDF
         {
@@ -412,6 +419,8 @@ function xsieben_teilnahmebestaetigung_pdf($entry_id, $course_id, $output_to_bro
 
     // TCPDF Objekt erzeugen
     $pdf = new MYPDFA_teilnahme(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
+
+    $pdfAuthor = 'XSieben Wirtschaftstraining GmbH';
 
     // Dokumentinformationen setzen
     $pdf->SetCreator(PDF_CREATOR);

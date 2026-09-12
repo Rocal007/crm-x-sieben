@@ -165,10 +165,9 @@ function xsieben_diplom_pdf($entry_id, $course_id, $output_to_browser = true, $s
     $safe_nachname = sanitize_file_name($course->nachname ?: 'Diplom');
     $pdf_name      = 'Diplom_' . $safe_title . '_' . $safe_vorname . '_' . $safe_nachname . '.pdf';
 
-    // Assets-Pfade (vollständig autark)
-    $assets_dir   = get_template_directory() . '/inc/core/crm/assets/';
-    $logo_path    = file_exists($assets_dir . 'x-sieben-logo-diplom.jpg') ? ($assets_dir . 'x-sieben-logo-diplom.jpg') : ($assets_dir . 'xsieben_logo.png');
-    $stempel_path = $assets_dir . 'stempel.png';
+    // Assets-Pfade (vollständig autark, mit URL-Fallback für Live-Server)
+    $logo_path    = crm_resolve_asset_path(file_exists(get_template_directory() . '/inc/core/crm/assets/x-sieben-logo-diplom.jpg') ? 'x-sieben-logo-diplom.jpg' : 'xsieben_logo.png');
+    $stempel_path = crm_resolve_asset_path('stempel.png');
 
     // Prüfungserfolg ermitteln
     $succ_raw  = $course->get_diplom_success() ?: 'erfolgreich';
@@ -236,8 +235,8 @@ function xsieben_diplom_pdf($entry_id, $course_id, $output_to_browser = true, $s
 
     // WBA Logo oben rechts (wenn dem Kurs zugeordnet)
     $wba_logo_html = '';
-    if ($has_wba && file_exists($assets_dir . 'wba-1.png')) {
-        $wba_logo_html = '<img src="' . esc_attr($assets_dir . 'wba-1.png') . '" width="75">';
+    if ($has_wba) {
+        $wba_logo_html = '<img src="' . esc_attr(crm_resolve_asset_path('wba-1.png')) . '" width="75">';
     }
 
     // Fußzeilen-Tabelle mit Partnerlogos
@@ -245,16 +244,16 @@ function xsieben_diplom_pdf($entry_id, $course_id, $output_to_browser = true, $s
     <table cellspacing="0" cellpadding="0" style="width: 100%; text-align: center;">
         <tr>
             <td style="width: 25%; vertical-align: middle; text-align: center;">
-                <img src="' . esc_attr($assets_dir . 'oecert.png') . '" height="24" style="height: 24px;">
+                <img src="' . esc_attr(crm_resolve_asset_path('oecert.png')) . '" height="24" style="height: 24px;">
             </td>
             <td style="width: 25%; vertical-align: middle; text-align: center;">
-                <img src="' . esc_attr($assets_dir . 'tuef.png') . '" height="28" style="height: 28px;">
+                <img src="' . esc_attr(crm_resolve_asset_path('tuef.png')) . '" height="28" style="height: 28px;">
             </td>
             <td style="width: 25%; vertical-align: middle; text-align: center;">
-                <img src="' . esc_attr($assets_dir . 'system-1.png') . '" height="22" style="height: 22px;">
+                <img src="' . esc_attr(crm_resolve_asset_path('system-1.png')) . '" height="22" style="height: 22px;">
             </td>
             <td style="width: 25%; vertical-align: middle; text-align: center;">
-                <img src="' . esc_attr($assets_dir . 'PMA-1.png') . '" height="26" style="height: 26px;">
+                <img src="' . esc_attr(crm_resolve_asset_path('PMA-1.png')) . '" height="26" style="height: 26px;">
             </td>
         </tr>
     </table>';

@@ -68,9 +68,9 @@ Jedes HTML-Dokument wird vor Versand oder Vorschau deterministisch normalisiert:
 
 ---
 
-## IV. DETAIL-DOKUMENTATION DER AGENTEN
+## IV. DETAIL-DOKUMENTATION DER SYSTEM-OPERATOREN
 
-Sämtliche Detail-Spezifikationen der Agenten befinden sich im Unterordner `agents/`:
+Sämtliche Detail-Spezifikationen der horizontalen System-Agenten befinden sich im Unterordner `agents/`:
 1. [System-Architekt (`ARCHITECT.md`)](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/ARCHITECT.md)
 2. [UX & Neurodidaktik (`UX-NEURODIDAKTIK.md`)](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/UX-NEURODIDAKTIK.md)
 3. [Legislative & Regulatory (`LEGISLATIVE.md`)](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/LEGISLATIVE.md)
@@ -81,3 +81,21 @@ Sämtliche Detail-Spezifikationen der Agenten befinden sich im Unterordner `agen
 
 Zusätzlich existiert das Spezialhandbuch:
 - [E-Mail-Editor Agent (`AGENT-EMAIL-EDITOR.md`)](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/AGENT-EMAIL-EDITOR.md)
+
+---
+
+## V. SUBAGENTS FÜR JEDEN GESCHÄFTSVORGANG (`agents/workflows/`)
+
+Die vertikalen Prozess-Subagenten steuern jeden konkreten Geschäftsvorgang vom Erstkontakt bis zur Diplomverleihung:
+
+| Subagent-ID | Geschäftsvorgang | E-Mail-Vorlage | PDF-Vorlage | Spezifikation |
+| :--- | :--- | :--- | :--- | :--- |
+| **`crm_subagent_orchestrator`** | **Gesamt-Lifecycle Orchestrierung** | Alle 7 Typen | Alle 6 Typen | [00-ORCHESTRATOR.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/workflows/00-ORCHESTRATOR.md) |
+| **`crm_subagent_angebot`** | **1. Kursangebot & Beratung** | `angebot` | `pdf/offer.php` | [01-VORGANG-ANGEBOT.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/workflows/01-VORGANG-ANGEBOT.md) |
+| **`crm_subagent_kb`** | **2. Kurszeitenbestätigung (AMS)** | `kb` | `pdf/kurszeitenbestaetigung.php` | [02-VORGANG-KURSZEITENBESTAETIGUNG.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/workflows/02-VORGANG-KURSZEITENBESTAETIGUNG.md) |
+| **`crm_subagent_angebot_kb`** | **3. Express-Kombi Angebot & KB** | `angebot_kb` | `offer.php` + `kurszeitenbestaetigung.php` | [03-VORGANG-KOMBI-ANGEBOT-KB.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/workflows/03-VORGANG-KOMBI-ANGEBOT-KB.md) |
+| **`crm_subagent_anmeldung`** | **4. Anmeldung, Buchung & Onboarding** | `anmeldung` | Anmeldeformular / Buchungsbeleg | [04-VORGANG-ANMELDUNG.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/workflows/04-VORGANG-ANMELDUNG.md) |
+| **`crm_subagent_tb`** | **5. Teilnahmebestätigung (TB)** | `tb` | `pdf/teilnamebestaetigung.php` | [05-VORGANG-TEILNAHMEBESTAETIGUNG.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/workflows/05-VORGANG-TEILNAHMEBESTAETIGUNG.md) |
+| **`crm_subagent_diplom`** | **6. Diplom & Personenzertifizierung** | `diplom` | `pdf/diplom.php` | [06-VORGANG-DIPLOM.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/workflows/06-VORGANG-DIPLOM.md) |
+| **`crm_subagent_invoice`** | **7. Honorarnote & Kursabrechnung** | `invoice` | `pdf/invoice.php` | [07-VORGANG-HONORARNOTE.md](file:///c:/laragon/www/x-sieben/wp-content/themes/sieben/inc/core/crm/agents/workflows/07-VORGANG-HONORARNOTE.md) |
+
